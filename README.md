@@ -6,16 +6,15 @@ EasyHap automatically recognizes haploid, diploid, and polyploid genotypes, supp
 
 ## Key features
 
-- Linux command-line interface: `easyhap` and Source-based Tkinter GUI: `python easyhap_gui.py` or `easyhap-gui`
-- Windows standalone graphical interface: `EasyHap.exe`
-- Automatic recognition of phased haploid, diploid, and polyploid genotypes
-- Separate analysis modes for inbred/selfing and hybrid/outcrossing populations
-- Support for SNPs, indels, PAV/SV alleles, and multiallelic sites
-- Optional Fisher's exact test filtering between two population groups
-- Raw haplotype summaries and sequence-similarity-based clustering
+- Linux command-line interface: `easyhap`
+- Windows-friendly Tkinter GUI: `EasyHap_v1.0.exe`
+- Phased haploid, diploid, and polyploid genotypes
+- Inbred/selfing and hybrid/outcrossing analysis modes
+- SNPs, indels, PAV/SV alleles, and multiallelic sites
+- Optional Fisher exact filtering between two population groups
+- Raw haplotype and sequence-similarity cluster summaries
 - FASTA, NEXUS, PHYLIP, and sample-copy FASTA output
-- Haplotype heatmaps and gene-model plots, population-group pie charts and stacked bar plots, rrait boxplots with overall and pairwise significance tests
-- Single-region and batch multi-region analysis
+- Haplotype heatmaps, gene-model plots, combined group pie charts, stacked bars, and trait boxplots with significance tests
 
 ## Installation
 

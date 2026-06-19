@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "EasyHap"
+version = "1.0"
+description = "EasyHap 1.0: haplotype analysis for phased VCF regions"
+requires-python = ">=3.9"
+dependencies = [
+  "pandas>=1.5",
+  "numpy>=1.23",
+  "matplotlib>=3.6",
+  "scipy>=1.10"
+]
+
+[project.optional-dependencies]
+fastvcf = ["cyvcf2>=0.30", "pysam>=0.21"]
+
+[project.scripts]
+easyhap = "easyhap.cli:main"
+easyhap-gui = "easyhap.gui:main"

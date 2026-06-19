@@ -1,0 +1,14 @@
+##fileformat=VCFv4.2
+##source=EasyHap-1.0-demo
+##contig=<ID=ChrDemo,length=5000>
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Structural variant type">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Phased genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	C001	C002	C003	C004
+ChrDemo	1100	demoV1	A	G,T,C	.	PASS	.	GT	0|1	0|1	0|1	0|1
+ChrDemo	1250	demoV2	C	G,T	.	PASS	.	GT	0|0	0|0	0|0	0|0
+ChrDemo	1450	demoV3	A	ATG,ATTG	.	PASS	.	GT	0|0	0|0	0|0	0|0
+ChrDemo	1700	demoV4	T	C,A,G	.	PASS	.	GT	0|0	0|0	0|0	0|0
+ChrDemo	1950	demoV5	A	T,G	.	PASS	.	GT	0|0	0|0	0|0	0|0
+ChrDemo	2200	demoV6	G	A,<PAV>,T	.	PASS	SVTYPE=PAV	GT	0|0	0|0	0|0	0|0
+ChrDemo	2450	demoV7	C	T,G	.	PASS	.	GT	0|1	0|1	0|1	0|1
+ChrDemo	2700	demoV8	A	C,G	.	PASS	.	GT	0|1	0|1	0|1	0|1

@@ -1,0 +1,13 @@
+##gff-version 3
+ChrDemo	EasyHap	gene	1000	2800	.	+	.	ID=DemoGene1;Name=DemoGene1
+ChrDemo	EasyHap	mRNA	1000	2800	.	+	.	ID=DemoGene1.1;Parent=DemoGene1
+ChrDemo	EasyHap	exon	1000	1350	.	+	.	ID=exon1;Parent=DemoGene1.1
+ChrDemo	EasyHap	five_prime_UTR	1000	1099	.	+	.	ID=utr5;Parent=DemoGene1.1
+ChrDemo	EasyHap	CDS	1100	1350	.	+	0	ID=cds1;Parent=DemoGene1.1
+ChrDemo	EasyHap	exon	1450	1800	.	+	.	ID=exon2;Parent=DemoGene1.1
+ChrDemo	EasyHap	CDS	1450	1800	.	+	0	ID=cds2;Parent=DemoGene1.1
+ChrDemo	EasyHap	exon	1900	2300	.	+	.	ID=exon3;Parent=DemoGene1.1
+ChrDemo	EasyHap	CDS	1900	2300	.	+	0	ID=cds3;Parent=DemoGene1.1
+ChrDemo	EasyHap	exon	2450	2800	.	+	.	ID=exon4;Parent=DemoGene1.1
+ChrDemo	EasyHap	CDS	2450	2680	.	+	0	ID=cds4;Parent=DemoGene1.1
+ChrDemo	EasyHap	three_prime_UTR	2681	2800	.	+	.	ID=utr3;Parent=DemoGene1.1

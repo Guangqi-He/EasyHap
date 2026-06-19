@@ -1,0 +1,27 @@
+EasyHap 1.0 demonstration dataset
+
+Shared inputs:
+- sample_group.tsv: 120 samples (60 Cultivar and 60 Landrace)
+- traits.tsv: two numeric traits with designed haplotype effects
+- demo.gff3: one complete gene model at ChrDemo:1000-2800
+- regions.tsv: ChrDemo:900-2900
+
+VCF inputs:
+- demo_haploid_multiallelic.vcf: 120 haploid samples
+- demo_diploid_multiallelic.vcf: 120 phased diploid samples
+- demo_triploid_multiallelic.vcf: 120 phased triploid samples
+
+Expected analysis settings:
+- Fisher comparison: Cultivar versus Landrace
+- Fisher alpha: 0.05
+- Fisher adjustment: none
+- Cluster threshold: 0.20
+- Region: ChrDemo:900-2900
+
+Expected results for each VCF after Fisher filtering:
+- Input variants: 8
+- Retained variants: 6
+- Raw haplotypes: 6
+- Haplotype clusters: 3
+- At least one raw haplotype is represented by fewer than 5 samples
+- Plant_height and Seed_weight show strong differences among major haplotype/cluster classes

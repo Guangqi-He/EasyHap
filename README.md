@@ -6,59 +6,16 @@ EasyHap automatically recognizes haploid, diploid, and polyploid genotypes, supp
 
 ## Key features
 
-- Linux command-line interface: `easyhap`
+- Linux command-line interface: `easyhap` and Source-based Tkinter GUI: `python easyhap_gui.py` or `easyhap-gui`
 - Windows standalone graphical interface: `EasyHap.exe`
-- Source-based Tkinter GUI: `python easyhap_gui.py` or `easyhap-gui`
 - Automatic recognition of phased haploid, diploid, and polyploid genotypes
 - Separate analysis modes for inbred/selfing and hybrid/outcrossing populations
 - Support for SNPs, indels, PAV/SV alleles, and multiallelic sites
 - Optional Fisher's exact test filtering between two population groups
-- Benjamini-Hochberg correction for Fisher-test multiple comparisons
 - Raw haplotype summaries and sequence-similarity-based clustering
 - FASTA, NEXUS, PHYLIP, and sample-copy FASTA output
-- Haplotype heatmaps and gene-model plots
-- Population-group pie charts and stacked bar plots
-- Trait boxplots with overall and pairwise significance tests
+- Haplotype heatmaps and gene-model plots, population-group pie charts and stacked bar plots, rrait boxplots with overall and pairwise significance tests
 - Single-region and batch multi-region analysis
-
-## Workflow
-
-```text
-Phased VCF/VCF.GZ/BCF
-        +
-Sample group table
-        +
-Region or region list
-        |
-        v
-Variant extraction and allele recoding
-        |
-        +--> Optional Fisher filtering between two groups
-        |
-        v
-Raw haplotype reconstruction
-        |
-        +--> Optional sequence-similarity clustering
-        |
-        v
-Haplotype summaries, sequence files, population statistics,
-trait tests, and publication-ready figures
-```
-
-## Release package
-
-The `EasyHap-1.0.zip` release contains separate Windows and Linux directories:
-
-```text
-EasyHap-1.0/
-├── windows/
-│   ├── EasyHap.exe
-│   └── example files
-└── Linux/
-    ├── EasyHap source code
-    ├── example files
-    └── README.md
-```
 
 ## Installation
 
@@ -87,13 +44,7 @@ Install the dependencies and EasyHap:
 unzip EasyHap-1.0.zip
 cd EasyHap-1.0/Linux
 
-python3 -m pip install \
-  "pandas>=1.5" \
-  "numpy>=1.23" \
-  "matplotlib>=3.6" \
-  "scipy>=1.10" \
-  "cyvcf2>=0.30"
-
+python3 -m pip install "pandas>=1.5" "numpy>=1.23" "matplotlib>=3.6" "scipy>=1.10" "cyvcf2>=0.30"
 python3 -m pip install -e .
 easyhap --version
 ```
@@ -103,29 +54,19 @@ easyhap --version
 ```bash
 conda create -n easyhap python=3.10 -y
 conda activate easyhap
-
-python -m pip install \
-  "pandas>=1.5" \
-  "numpy>=1.23" \
-  "matplotlib>=3.6" \
-  "scipy>=1.10" \
-  "cyvcf2>=0.30"
-
+python -m pip install "pandas>=1.5" "numpy>=1.23" "matplotlib>=3.6" "scipy>=1.10" "cyvcf2>=0.30"
 unzip EasyHap-1.0.zip
 cd EasyHap-1.0/Linux
 python -m pip install -e .
-
 easyhap --version
 ```
 
 ### Launching the source-based GUI
-
 From the Linux source directory, the Tkinter interface can be launched with either command:
 
 ```bash
 python easyhap_gui.py
 ```
-
 or:
 
 ```bash
@@ -139,7 +80,6 @@ EasyHap requires a phased VCF and a sample-group table. A trait table, region li
 ### 1. Phased VCF, VCF.GZ, or BCF file — required
 
 EasyHap accepts standard VCF, compressed VCF, or BCF files containing phased genotypes.
-
 Phased alleles should be separated by `|`, for example:
 
 ```text
@@ -147,11 +87,8 @@ Phased alleles should be separated by `|`, for example:
 1|0
 0|1|1|0
 ```
-
 EasyHap automatically infers ploidy from the genotype fields; users do not need to specify whether the samples are haploid, diploid, or polyploid.
-
 For sequence-aware analysis of indels and PAV/SV alleles, sequence-resolved `REF` and `ALT` alleles are recommended. Symbolic alleles such as `<PAV>` do not contain the inserted sequence and therefore cannot provide full sequence reconstruction.
-
 For large datasets, use bgzip-compressed and indexed VCF files. Indexed files substantially accelerate regional access.
 
 #### Example VCF
@@ -250,31 +187,15 @@ The following commands are examples. Adjust filenames, thresholds, reference fil
 ### Filter variants by missingness and minor-allele frequency
 
 ```bash
-vcftools \
-  --gzvcf sample.snp.pass.vcf.gz \
-  --max-missing 0.8 \
-  --maf 0.01 \
-  --recode \
-  --stdout |
-  bgzip -c > sample.snp.popfilter.vcf.gz
-
+vcftools --gzvcf sample.snp.pass.vcf.gz --max-missing 0.8 --maf 0.01 --recode --stdout | bgzip -c > sample.snp.popfilter.vcf.gz
 bcftools index -t sample.snp.popfilter.vcf.gz
 ```
-
 ### Combine SNP, indel, and PAV/SV files
 
 The input files should contain the same samples in the same order.
-
 ```bash
-bcftools concat -a \
-  sample.snp.popfilter.vcf.gz \
-  sample.indel.popfilter.vcf.gz \
-  sample.pav.popfilter.vcf.gz \
-  -Ou |
-  bcftools sort \
-    -Oz \
-    -o sample.snp_indel_pav.vcf.gz
-
+bcftools concat -a sample.snp.popfilter.vcf.gz sample.indel.popfilter.vcf.gz sample.pav.popfilter.vcf.gz -Ou |
+  bcftools sort -Oz -o sample.snp_indel_pav.vcf.gz
 bcftools index -t sample.snp_indel_pav.vcf.gz
 ```
 
@@ -283,34 +204,17 @@ bcftools index -t sample.snp_indel_pav.vcf.gz
 EasyHap supports multiallelic sites. Biallelic filtering is optional.
 
 ```bash
-bcftools view \
-  -m2 \
-  -M2 \
-  -Oz \
-  -o sample.snp_indel_pav.biallelic.vcf.gz \
-  sample.snp_indel_pav.vcf.gz
-
+bcftools view -m2 -M2  -Oz -o sample.snp_indel_pav.biallelic.vcf.gz sample.snp_indel_pav.vcf.gz
 bcftools index -t sample.snp_indel_pav.biallelic.vcf.gz
 ```
 
 ### Phase diploid genotypes
 
 One possible option for diploid data is Beagle:
-
 ```bash
-java -jar beagle.27Feb25.75f.jar \
-  gt=sample.snp_indel_pav.vcf.gz \
-  out=sample.snp_indel_pav_beagle \
-  seed=123 \
-  nthreads=48
-```
-
-Index the phased output:
-
-```bash
+java -jar beagle.27Feb25.75f.jar gt=sample.snp_indel_pav.vcf.gz out=sample.snp_indel_pav_beagle seed=123 nthreads=48
 bcftools index -t sample.snp_indel_pav_beagle.vcf.gz
 ```
-
 For polyploid datasets, use a phasing method appropriate for the species, ploidy level, sequencing design, and variant type before running EasyHap.
 
 ## Command-line interface

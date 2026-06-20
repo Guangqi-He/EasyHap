@@ -177,6 +177,7 @@ The required arguments are:
 - `--group`
 - `--outdir`
 At least one genomic region should be supplied through `--region` or `--region-file`.
+
 | Argument | Description |
 |---|---|
 | `--vcf` | Phased VCF, VCF.GZ, or BCF file |

@@ -1,10 +1,6 @@
 <p align="center">
   <img src="images/EasyHap_logo.png" width="120" alt="EasyHap logo">
 </p>
-<h1 align="center">EasyHap</h1>
-<p align="center">
-  <b>Integrated ploidy-aware haplotype analysis and visualization for functional gene discovery and superior allele mining</b>
-</p>
 
 **EasyHap** is a cross-platform toolkit for regional haplotype analysis and visualization using phased VCF data from fungal, plant, and animal population resequencing projects.
 EasyHap automatically recognizes haploid, diploid, and polyploid genotypes, supports both inbred/selfing and hybrid/outcrossing analysis strategies, and integrates variant recoding, haplotype reconstruction, population comparison, sequence-similarity clustering, sequence export, phenotype association, and publication-ready visualization.

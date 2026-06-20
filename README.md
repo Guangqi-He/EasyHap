@@ -23,15 +23,14 @@ The Windows release provides a standalone executable and does not require a sepa
 3. Double-click `EasyHap.exe`.
 4. Use the supplied example files to test the workflow.
 ![EasyHap window](images/EasyHap_win.png)
-### Linux: installation with an existing Python environment
+### Linux
 EasyHap requires Python 3 and the following core packages:
 - `pandas >= 1.5`
 - `numpy >= 1.23`
 - `matplotlib >= 3.6`
 - `scipy >= 1.10`
 - `cyvcf2 >= 0.30`
-
-Install the dependencies and EasyHap:
+#### installation with an existing Python environment
 ```bash
 unzip EasyHap-1.0.zip
 cd EasyHap-1.0/Linux
@@ -39,7 +38,7 @@ python3 -m pip install "pandas>=1.5" "numpy>=1.23" "matplotlib>=3.6" "scipy>=1.1
 python3 -m pip install -e .
 easyhap --version
 ```
-### Linux: installation in a Conda environment
+#### installation in a Conda environment
 ```bash
 conda create -n easyhap python=3.10 -y
 conda activate easyhap
@@ -49,7 +48,6 @@ cd EasyHap-1.0/Linux
 python -m pip install -e .
 easyhap --version
 ```
-### Launching the source-based GUI
 From the Linux source directory, the Tkinter interface can be launched with either command: `python easyhap_gui.py`
 
 ## Input files
@@ -140,7 +138,6 @@ EasyHap supports multiallelic sites. Biallelic filtering is optional.
 bcftools view -m2 -M2  -Oz -o sample.snp_indel_pav.biallelic.vcf.gz sample.snp_indel_pav.vcf.gz
 bcftools index -t sample.snp_indel_pav.biallelic.vcf.gz
 ```
-
 ### Phase diploid genotypes
 One possible option for diploid data is Beagle:
 ```bash
@@ -149,11 +146,7 @@ bcftools index -t sample.snp_indel_pav_beagle.vcf.gz
 ```
 For polyploid datasets, use a phasing method appropriate for the species, ploidy level, sequencing design, and variant type before running EasyHap.
 ## Command-line interface
-Display the main help page:
-```bash
-easyhap -h
-```
-
+Display the main help page: `easyhap -h`
 ```text
 usage: easyhap [-h] [--version] {prepare,analyze} ...
 
@@ -176,7 +169,6 @@ EasyHap contains two subcommands:
 The allele-preparation procedure is already integrated into `easyhap analyze`; most users do not need to run `easyhap prepare` separately.
 
 ### Analyze command
-
 ```bash
 easyhap analyze -h
 ```

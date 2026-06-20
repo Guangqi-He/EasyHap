@@ -172,11 +172,7 @@ The allele-preparation procedure is already integrated into `easyhap analyze`; m
 ```bash
 easyhap analyze -h
 ```
-The required arguments are:
-- `--vcf`
-- `--group`
-- `--outdir`
-At least one genomic region should be supplied through `--region` or `--region-file`.
+The required arguments are: `--vcf`, `--group` and `--outdir`. At least one genomic region should be supplied through `--region` or `--region-file`.
 
 | Argument | Description |
 |---|---|

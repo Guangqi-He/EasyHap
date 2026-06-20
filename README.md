@@ -285,23 +285,6 @@ easyhap analyze \
   --outdir easyhap_batch
 ```
 Each interval receives a separate output prefix based on its chromosome, start position, and end position.
-## Haplotype clustering
-EasyHap first identifies raw haplotypes and then optionally groups sequence-similar haplotypes. Clustering is based on normalized Hamming distance. Haplotypes satisfying the distance threshold are connected, and connected components are assigned cluster identifiers such as `HapC1`, `HapC2`, and `HapC3`.
-```text
---cluster-threshold 0.05
-```
-A small threshold produces conservative clusters, whereas a larger threshold merges increasingly dissimilar haplotypes. The threshold should therefore be chosen according to region length, variant density, missing-data rate, and the biological objective. Raw haplotype labels are retained in the output even when cluster-level plotting is selected.
-## Fisher filtering
-Fisher filtering is optional and requires exactly two group names from the sample-group file.
-```bash
---fisher-groups Cultivar,Landrace \
---fisher-alpha 0.05 \
---fisher-adjust bh
-```
-Available multiple-testing settings are:
-- `none`: apply the threshold to raw Fisher-test P values
-- `bh`: apply the threshold to Benjamini-Hochberg-adjusted P values
-Fisher filtering is performed before final haplotype reconstruction, so changing the threshold may change both the number of retained variants and the resulting haplotype composition. This function is intended for analyses focused on variants that differentiate two predefined populations. It should not be enabled when the objective is to summarize all regional variation.
 ## Output files
 For a region such as `ChrDemo:900-2900`, EasyHap uses the prefix: ChrDemo_900_2900
 Depending on the selected options, the output directory may contain:
@@ -323,7 +306,6 @@ Depending on the selected options, the output directory may contain:
 | `*.GroupStackedBar.pdf` | Stacked haplotype-frequency plot across groups |
 | `*.TraitBoxplot.pdf` | Trait distributions across haplotypes or clusters |
 
-Figure extensions depend on `--plot-format`. Multiple formats can be requested: `--plot-format pdf,svg,png`
 ### Allele-state map
 Example:
 ```text

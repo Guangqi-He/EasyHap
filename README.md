@@ -406,8 +406,8 @@ Plot availability depends on the supplied files:
 - Retain raw haplotype outputs even when cluster-level plots are used.
 ## Citation
 When EasyHap contributes to published work, please cite the software name, version, and GitHub repository. A formal publication or archived DOI can be added here when available.
-## Feedback and bug reports
-Bug reports, feature requests, and usage questions are welcome through the EasyHap GitHub Issues page:
-```text
-https://github.com/Guangqi-He/EasyHap/issues
-```
+## License
+
+Copyright (C) 2026 Guangqi He.
+
+EasyHap is free software distributed under the terms of the GNU General Public License, version 3 only (`GPL-3.0-only`). See the [LICENSE](LICENSE) file for the complete license text.

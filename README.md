@@ -4,6 +4,8 @@
 
 **EasyHap** is a cross-platform toolkit for regional haplotype analysis and visualization using phased VCF data from fungal, plant, and animal population resequencing projects.
 EasyHap automatically recognizes haploid, diploid, and polyploid genotypes, supports both inbred/selfing and hybrid/outcrossing analysis strategies, and integrates variant recoding, haplotype reconstruction, population comparison, sequence-similarity clustering, sequence export, phenotype association, and publication-ready visualization.
+Core workflow of EasyHap
+![EasyHap workflow](images/EasyHap_workflow.png)
 ## Key features
 - Linux command-line interface: `easyhap`
 - Windows-friendly Tkinter GUI: `EasyHap_v1.0.exe`

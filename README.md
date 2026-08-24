@@ -43,7 +43,7 @@ python -m pip install -r requirements.txt
 python -m pip install -e .
 easyhap analyze --help
 ```
-#### installation in a Conda environment
+### installation in a Conda environment
 ```bash
 conda create -n easyhap python=3.10 -y
 conda activate easyhap
@@ -55,18 +55,18 @@ easyhap analyze --help
 ```
 ### Windows
 The Windows release provides a standalone executable and does not require a separate Python installation.
-1. Download and extract `EasyHap-1.0.zip`.
+1. Download and extract `EasyHap-1.1.0.zip`.
 2. Open the `windows` directory.
 3. Double-click `EasyHap.exe`.
 4. Use the supplied example files to test the workflow.
-![EasyHap window](images/EasyHap_win.png)
+![EasyHap window](images/GUI.png)
 
 ## Quick start
 ### Minimal analysis
 ```bash
 easyhap analyze --vcf input.vcf.gz --region Chr10:100000-120000
 ```
-Only a phased VCF/VCF.GZ/BCF file and one region source (`--region` or `--region-file`) are required. Results are written to `EasyHap_results` by default.
+GUIOnly a phased VCF/VCF.GZ/BCF file and one region source (`--region` or `--region-file`) are required. Results are written to `EasyHap_results` by default.
 ### Population analysis with figures
 ```bash
 easyhap analyze --vcf input.vcf.gz --group groups.tsv --region Chr10:100000-120000 --plot --outdir GeneA_results
@@ -141,33 +141,6 @@ For the full input specifications, statistical definitions, output-file descript
 
 Detailed examples are provided in the `examples/` directory and in the Wiki.
 
-## Main outputs
-
-Depending on the supplied inputs and options, EasyHap can generate:
-
-```text
-*.HapSummary.tsv
-*.HapGroup.tsv
-*.HaplotypeFrequency.tsv
-*.HaplotypeDiversity.tsv
-*.PrivateHaplotypes.tsv
-*.TraitHaplotypeSummary.tsv
-*.TraitAssociationTests.tsv
-*.SuperiorHaplotypeCandidates.tsv
-*.LD_r2_matrix.tsv
-*.Haplotype.fa
-*.Haplotype.phy
-*.Haplotype.nex
-*.AlleleStateMap.tsv
-*.HaplotypeHeatmap.pdf
-*.GeneHaplotype.pdf
-*.GroupStackedBar.pdf
-*.GroupPieChart.pdf
-*.LD_r2_Heatmap.pdf
-*.<trait>.TraitBoxplot.pdf
-```
-
-The selected figure extension follows `--plot-format`. Files requiring optional inputs are generated only when the corresponding analysis is available.
 ## Graphical interface
 Launch the GUI with:
 ```bash

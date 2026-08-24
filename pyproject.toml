@@ -4,19 +4,34 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "EasyHap"
-version = "1.0"
-description = "EasyHap 1.0: haplotype analysis for phased VCF regions"
+version = "1.1.0"
+description = "Ploidy-aware regional haplotype analysis, population statistics, trait association, LD analysis and visualization"
+readme = "README.md"
 requires-python = ">=3.9"
+license = "GPL-3.0-or-later"
+authors = [{name = "Guangqi He"}]
 dependencies = [
   "pandas>=1.5",
   "numpy>=1.23",
   "matplotlib>=3.6",
-  "scipy>=1.10"
+  "scipy>=1.10",
+  "pysam>=0.21",
+  "cyvcf2>=0.30"
 ]
 
+[project.urls]
+Homepage = "https://github.com/Guangqi-He/EasyHap"
+Documentation = "https://github.com/Guangqi-He/EasyHap/wiki"
+Repository = "https://github.com/Guangqi-He/EasyHap"
+Issues = "https://github.com/Guangqi-He/EasyHap/issues"
+
 [project.optional-dependencies]
-fastvcf = ["cyvcf2>=0.30", "pysam>=0.21"]
+dev = ["pytest>=7"]
 
 [project.scripts]
 easyhap = "easyhap.cli:main"
 easyhap-gui = "easyhap.gui:main"
+
+[tool.setuptools.packages.find]
+include = ["easyhap*"]
+exclude = ["tests*", "examples*"]

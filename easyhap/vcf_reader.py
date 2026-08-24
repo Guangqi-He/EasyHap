@@ -193,7 +193,32 @@ class VCFReader:
         self.samples: List[str] = []
         self._init_backend()
 
+    def _has_region_index(self) -> bool:
+        """Return True when a tabix/CSI index usable for regional access exists."""
+        candidates = [
+            self.path + ".tbi",
+            self.path + ".csi",
+        ]
+        # Some workflows keep the CSI beside the stem (e.g. sample.bcf.csi is
+        # already covered above); keep this helper intentionally conservative.
+        return any(os.path.exists(x) for x in candidates)
+
+    def _is_binary_bcf(self) -> bool:
+        return self.path.lower().endswith(".bcf")
+
+    def _is_text_vcf(self) -> bool:
+        lower = self.path.lower()
+        return lower.endswith(".vcf") or lower.endswith(".vcf.gz") or lower.endswith(".vcf.bgz") or lower.endswith(".vcf.bgzip")
+
     def _init_backend(self) -> None:
+        # Auto mode deliberately keeps unindexed textual VCF files on the
+        # sequential plain-text parser.  cyvcf2/pysam regional queries are
+        # index based and can otherwise raise lazily during iteration.
+        if self.prefer == "auto" and self._is_text_vcf() and not self._has_region_index():
+            self.samples = self._read_samples_plain()
+            self.backend = "plain"
+            return
+
         if self.prefer in {"auto", "cyvcf2"}:
             try:
                 from cyvcf2 import VCF  # type: ignore
@@ -216,11 +241,22 @@ class VCFReader:
             except Exception:
                 if self.prefer == "pysam":
                     raise
+
+        # Binary BCF cannot be parsed by the text fallback.  Give a useful
+        # error instead of trying to decode binary bytes as VCF text.
+        if self._is_binary_bcf():
+            raise RuntimeError(
+                f"Unable to open BCF file {self.path!r}. Install/repair cyvcf2 or pysam. "
+                "For fast regional access, create a CSI index."
+            )
+
         self.samples = self._read_samples_plain()
         self.backend = "plain"
 
     def _open_text(self):
-        return gzip.open(self.path, "rt") if self.path.endswith(".gz") else open(self.path, "rt")
+        lower = self.path.lower()
+        compressed = lower.endswith(".gz") or lower.endswith(".bgz") or lower.endswith(".bgzip")
+        return gzip.open(self.path, "rt") if compressed else open(self.path, "rt")
 
     def _read_samples_plain(self) -> List[str]:
         with self._open_text() as fh:
@@ -240,12 +276,16 @@ class VCFReader:
 
     def _iter_cyvcf2(self, region: Region) -> Iterator[VariantCall]:
         assert self._vcf is not None
-        iterator: Iterable = None  # type: ignore
-        try:
-            iterator = self._vcf(region.vcf_label)
-        except Exception:
-            # no index or contig naming mismatch: fall back to whole-file scan.
-            iterator = self._vcf
+
+        # Indexed inputs use true random access.  For an explicitly selected
+        # cyvcf2 backend on an unindexed input, reopen the file and scan it
+        # sequentially for every region so batch analyses remain correct.
+        if self._has_region_index():
+            iterator: Iterable = self._vcf(region.vcf_label)
+        else:
+            from cyvcf2 import VCF  # type: ignore
+            iterator = VCF(self.path)
+
         for rec in iterator:
             if rec.CHROM != region.chrom or rec.POS < region.start or rec.POS > region.end:
                 continue
@@ -267,10 +307,14 @@ class VCFReader:
 
     def _iter_pysam(self, region: Region) -> Iterator[VariantCall]:
         assert self._vcf is not None
-        try:
+        if self._has_region_index():
             iterator = self._vcf.fetch(region.chrom, region.start - 1, region.end)
-        except Exception:
-            iterator = self._vcf.fetch()
+        else:
+            # Reopen for each region because a sequential iterator is consumed
+            # after one pass and region-file analysis may contain many regions.
+            import pysam  # type: ignore
+            fresh = pysam.VariantFile(self.path)
+            iterator = iter(fresh)
         for rec in iterator:
             pos = int(rec.pos)
             if rec.chrom != region.chrom or pos < region.start or pos > region.end:

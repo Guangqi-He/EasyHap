@@ -10,6 +10,7 @@ import pandas as pd
 from .io_utils import ensure_dir, read_group_file, read_trait_file, sanitize_filename
 from .stats import bh_adjust, connected_component_clusters, fisher_exact_2x2
 from .vcf_reader import MISSING_ALLELE, Region, VCFReader, VariantCall, read_regions, token_for_gt
+from .research import write_population_haplotype_statistics, write_trait_association, write_ld_outputs
 
 IUPAC = {
     frozenset({"A", "G"}): "R",
@@ -317,8 +318,6 @@ def write_alignment_files(
     prefix: str,
     calls: Sequence[VariantCall],
     hap_to_seq: Dict[str, Tuple[str, ...]],
-    sample_haps: Dict[str, List[str]],
-    mode: str,
 ) -> None:
     hap_encoded, maps = _state_encode_sequences(hap_to_seq)
     fasta_path = prefix + ".Haplotype.fa"
@@ -353,24 +352,11 @@ def write_alignment_files(
             for tok, ch in sorted(site_map.items(), key=lambda kv: kv[1]):
                 fh.write(f"{call.chrom}\t{call.pos}\t{tok}\t{ch}\n")
 
-    # Sample-level copy alignment.
-    sample_sequences: Dict[str, Tuple[str, ...]] = {}
-    hap_id_to_seq = hap_to_seq
-    for sample, haps in sample_haps.items():
-        if mode == "inbred":
-            sample_sequences[f"{sample}|{haps[0]}"] = hap_id_to_seq[haps[0]]
-        else:
-            for i, hid in enumerate(haps, 1):
-                sample_sequences[f"{sample}|copy{i}|{hid}"] = hap_id_to_seq[hid]
-    sample_encoded, _ = _state_encode_sequences(sample_sequences)
-    with open(prefix + ".Haplotype_sample.fa", "w", encoding="utf-8") as fh:
-        for name, seq in sample_encoded.items():
-            fh.write(f">{name}\n{seq}\n")
 
 
 def run_region_analysis(
     vcf_path: str,
-    group_file: str,
+    group_file: Optional[str],
     region: Region,
     outdir: str,
     mode: str = "inbred",
@@ -389,22 +375,39 @@ def run_region_analysis(
     traits_to_plot: Optional[Sequence[str]] = None,
     plot_hap_level: str = "hap",
     plot_min_count: int = 1,
+    min_variants: int = 2,
+    ref_color: str = "#70AD47",
+    alt_color: str = "#4472C4",
+    missing_color: str = "#D9D9D9",
+    make_ld: bool = True,
+    hap_palette: Optional[Sequence[str]] = None,
+    ld_cmap: Optional[str] = None,
 ) -> HapResult:
     ensure_dir(outdir)
     reader = VCFReader(vcf_path, prefer=vcf_backend)
     group_map = read_group_file(group_file)
-    samples = _sample_pool(reader.samples, group_map)
+    if group_map:
+        samples = _sample_pool(reader.samples, group_map)
+    else:
+        samples = list(reader.samples)
+        group_map = {s: "All" for s in samples}
     traits = read_trait_file(trait_file)
 
     calls = list(reader.iter_region(region))
-    if not calls:
-        raise ValueError(f"No variants found in region {region.vcf_label}")
+    if len(calls) < max(1, int(min_variants)):
+        raise ValueError(
+            f"Insufficient variants in region {region.vcf_label}: found {len(calls)}, "
+            f"minimum required is {max(1, int(min_variants))}"
+        )
 
     calls, fisher_df = filter_variants_by_fisher(
         calls, samples, group_map, fisher_group1, fisher_group2, fisher_alpha, fisher_adjust
     )
-    if not calls:
-        raise ValueError("No variants remained after Fisher exact filtering")
+    if len(calls) < max(1, int(min_variants)):
+        raise ValueError(
+            f"Insufficient variants after filtering in region {region.vcf_label}: found {len(calls)}, "
+            f"minimum required is {max(1, int(min_variants))}"
+        )
 
     safe_label = sanitize_filename(region.label)
     prefix = os.path.join(outdir, safe_label)
@@ -421,7 +424,7 @@ def run_region_analysis(
     hap_group_path = prefix + ".HapGroup.tsv"
     write_hap_summary(hap_summary_path, calls, hap_to_seq, hap_clusters, hap_to_samples)
     hap_group_df = write_hap_group(hap_group_path, sample_haps, hap_clusters, group_map, traits, mode)
-    write_alignment_files(prefix, calls, hap_to_seq, sample_haps, mode)
+    write_alignment_files(prefix, calls, hap_to_seq)
 
     result = HapResult(
         region=region,
@@ -438,9 +441,14 @@ def run_region_analysis(
         output_prefix=prefix,
     )
 
+    # Research outputs added in 1.1.0.
+    write_population_haplotype_statistics(prefix, sample_haps, group_map, mode)
+    write_trait_association(prefix, hap_group_df, traits_to_plot, class_col=("Hap" if plot_hap_level == "hap" else "ClusterID"))
+    if make_ld:
+        write_ld_outputs(prefix, calls, samples)
+
     if make_plots:
         from .plotting import make_all_plots
-
         make_all_plots(
             result=result,
             hap_group_df=hap_group_df,
@@ -450,22 +458,55 @@ def run_region_analysis(
             traits_to_plot=traits_to_plot,
             plot_hap_level=plot_hap_level,
             plot_min_count=plot_min_count,
+            ref_color=ref_color,
+            alt_color=alt_color,
+            missing_color=missing_color,
+            make_ld_plot=make_ld,
+            hap_palette=hap_palette,
+            ld_cmap=ld_cmap,
         )
     return result
 
 
 def run_analysis(
     vcf_path: str,
-    group_file: str,
-    outdir: str,
+    group_file: Optional[str] = None,
+    outdir: str = "EasyHap_results",
     region: Optional[str] = None,
     region_file: Optional[str] = None,
+    min_variants: int = 2,
     **kwargs,
 ) -> List[HapResult]:
+    """Run one or more regions, skipping unsuitable regions instead of aborting the batch."""
+    ensure_dir(outdir)
     regions = read_regions(region, region_file)
-    results = []
-    for reg in regions:
-        results.append(run_region_analysis(vcf_path, group_file, reg, outdir, **kwargs))
+    log_path = os.path.join(outdir, "EasyHap.log")
+    results: List[HapResult] = []
+    with open(log_path, "a", encoding="utf-8") as log:
+        for reg in regions:
+            log.write(f"[INFO] Processing {reg.vcf_label}\n")
+            log.flush()
+            try:
+                res = run_region_analysis(
+                    vcf_path, group_file, reg, outdir,
+                    min_variants=min_variants, **kwargs
+                )
+                results.append(res)
+                log.write(f"[INFO] Completed {reg.vcf_label}; variants={len(res.variants)}; haplotypes={len(res.hap_sequences)}\n")
+            except ValueError as exc:
+                msg = str(exc)
+                if "variants" in msg.lower() or "filter" in msg.lower():
+                    log.write(f"[WARNING] Skipped {reg.vcf_label}: {msg}\n")
+                    print(f"[EasyHap] SKIP {reg.vcf_label}: {msg}")
+                    continue
+                log.write(f"[ERROR] {reg.vcf_label}: {msg}\n")
+                raise
+            except Exception as exc:
+                # A malformed single region should be visible in the log; unexpected errors remain fatal.
+                log.write(f"[ERROR] {reg.vcf_label}: {type(exc).__name__}: {exc}\n")
+                raise
+            finally:
+                log.flush()
     return results
 
 

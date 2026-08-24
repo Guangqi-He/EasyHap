@@ -33,7 +33,9 @@ def _require_tabular_line(path: str, line_no: int, line: str, min_cols: int, des
     return parts
 
 
-def read_group_file(path: str) -> Dict[str, str]:
+def read_group_file(path: Optional[str]) -> Dict[str, str]:
+    if not path:
+        return {}
     groups: Dict[str, str] = {}
     for line_no, line in _iter_tsv_lines(path):
         parts = _require_tabular_line(path, line_no, line, 2, "sample<TAB>group")

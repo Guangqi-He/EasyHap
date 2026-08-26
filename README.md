@@ -57,7 +57,7 @@ The Windows release provides a standalone executable and does not require a sepa
 2. Open the `windows` directory.
 3. Double-click `EasyHap.exe`.
 4. Use the supplied example files to test the workflow.
-![EasyHap window](images/EasyHap_win.png)
+![EasyHap window](images/GUI.png)
 
 ## Quick start
 ### Minimal analysis

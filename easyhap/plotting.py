@@ -12,9 +12,10 @@ import matplotlib.pyplot as plt
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import ListedColormap, Normalize, to_rgba
 from matplotlib.lines import Line2D
-from matplotlib.patches import ConnectionPatch, Patch, Polygon, Rectangle
+from matplotlib.patches import ConnectionPatch, Patch, Polygon, Rectangle, Wedge
 import numpy as np
 import pandas as pd
+import networkx as nx
 
 from .core import HapResult
 from .stats import bh_adjust
@@ -43,6 +44,29 @@ DEFAULT_HAP_PALETTE = [
     "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC",
 ]
 DEFAULT_LD_CMAP = "viridis"
+
+DEFAULT_CELL_TEXT_MODE = "auto"
+_CELL_TEXT_MODE = DEFAULT_CELL_TEXT_MODE
+
+
+def set_cell_text_mode(mode: str) -> None:
+    """Set the process-wide default for heatmap allele text: auto, always, or never."""
+    global _CELL_TEXT_MODE
+    resolved = str(mode).strip().lower()
+    if resolved not in {"auto", "always", "never"}:
+        raise ValueError(
+            f"Invalid cell-text mode: {mode!r}. Expected one of: auto, always, never."
+        )
+    _CELL_TEXT_MODE = resolved
+
+
+def _resolve_cell_text_mode(mode: Optional[str]) -> str:
+    resolved = _CELL_TEXT_MODE if mode is None else str(mode).strip().lower()
+    if resolved not in {"auto", "always", "never"}:
+        raise ValueError(
+            f"Invalid cell-text mode: {mode!r}. Expected one of: auto, always, never."
+        )
+    return resolved
 
 
 @dataclass
@@ -173,6 +197,29 @@ def _ordered_heatmap_data(result: HapResult, level: str, min_count: int, reverse
     return rows, counts, text, matrix, calls
 
 
+def _cell_text_base_fontsize(ax, nrow: int, ncol: int) -> float:
+    """Estimate a readable cell-text size from the physical heatmap cell size."""
+    if nrow <= 0 or ncol <= 0:
+        return 0.0
+    pos = ax.get_position()
+    cell_w_pt = ax.figure.get_figwidth() * pos.width * 72.0 / ncol
+    cell_h_pt = ax.figure.get_figheight() * pos.height * 72.0 / nrow
+    # Leave padding around the glyph while keeping the historical 11.5 pt cap.
+    return min(11.5, 0.62 * min(cell_w_pt, cell_h_pt))
+
+
+def _cell_token_fontsize(base_fontsize: float, token: str, ax, ncol: int) -> float:
+    """Shrink long allele labels (e.g. indels or clustered tokens) to fit a cell."""
+    token = str(token)
+    if len(token) <= 1 or ncol <= 0:
+        return base_fontsize
+    pos = ax.get_position()
+    cell_w_pt = ax.figure.get_figwidth() * pos.width * 72.0 / ncol
+    # Approximate sans-serif character width as ~0.58 em and retain horizontal padding.
+    fit_fontsize = 0.82 * cell_w_pt / (0.58 * max(1, len(token)))
+    return min(base_fontsize, max(2.0, fit_fontsize))
+
+
 def _draw_heatmap(
     ax,
     result: HapResult,
@@ -184,6 +231,7 @@ def _draw_heatmap(
     title: Optional[str] = None,
     reverse_variants: bool = False,
     show_legend: bool = True,
+    cell_text: Optional[str] = None,
 ):
     rows, counts, text, matrix, calls = _ordered_heatmap_data(result, level, min_count, reverse_variants)
     if matrix.size == 0:
@@ -206,10 +254,26 @@ def _draw_heatmap(
     ax.set_ylabel("Haplotype / cluster")
     if title:
         ax.set_title(title)
-    if nrow <= 40 and ncol <= 50:
+
+    # Resolve the final equal-aspect plotting box before estimating the physical cell size.
+    ax.figure.canvas.draw()
+    cell_text_mode = _resolve_cell_text_mode(cell_text)
+    base_fontsize = _cell_text_base_fontsize(ax, nrow, ncol)
+    # auto: draw labels only while the dynamically calculated font remains readable.
+    # always: force labels at any matrix size (font may become very small).
+    # never: suppress labels completely.
+    draw_cell_text = (
+        cell_text_mode == "always"
+        or (cell_text_mode == "auto" and base_fontsize >= 4.5)
+    )
+    if draw_cell_text:
         for i, row in enumerate(text):
             for j, tok in enumerate(row):
-                ax.text(j + 0.5, i + 0.5, tok, ha="center", va="center", fontsize=11.5)
+                fontsize = _cell_token_fontsize(base_fontsize, tok, ax, ncol)
+                ax.text(
+                    j + 0.5, i + 0.5, tok,
+                    ha="center", va="center", fontsize=fontsize, clip_on=True,
+                )
     if show_legend:
         ax.legend(
             handles=[
@@ -219,7 +283,7 @@ def _draw_heatmap(
             ],
             frameon=False, loc="upper left", bbox_to_anchor=(1.01, 1), borderaxespad=0,
         )
-    return {"rows": rows, "counts": counts, "calls": calls, "nrow": nrow, "ncol": ncol}
+    return {"rows": rows, "counts": counts, "calls": calls, "nrow": nrow, "ncol": ncol, "cell_text": cell_text_mode, "cell_text_fontsize": base_fontsize if draw_cell_text else None}
 
 
 def _primary_gene(features: List[GeneFeature], start: int, end: int) -> Optional[GeneFeature]:
@@ -362,16 +426,18 @@ def plot_haplotype_heatmap(
     ref_color=DEFAULT_REF_COLOR,
     alt_color=DEFAULT_ALT_COLOR,
     missing_color=DEFAULT_MISSING_COLOR,
+    cell_text: Optional[str] = None,
 ):
     rows, _, _, mat = _allele_matrix(result, plot_hap_level, plot_min_count)
     if mat.size == 0:
         return
     fig, ax = plt.subplots(figsize=_heatmap_figure_size(len(rows), len(result.variants), with_gene=False))
+    # Set final margins before drawing so dynamic cell-text sizing uses the rendered heatmap box.
+    fig.subplots_adjust(left=0.18, right=0.82, bottom=0.18, top=0.90)
     _draw_heatmap(
         ax, result, plot_hap_level, plot_min_count, ref_color, alt_color, missing_color,
-        f"Haplotype heatmap: {result.region.vcf_label}",
+        f"Haplotype heatmap: {result.region.vcf_label}", cell_text=cell_text,
     )
-    fig.subplots_adjust(left=0.18, right=0.82, bottom=0.18, top=0.90)
     stem = "HaplotypeHeatmap" if plot_hap_level == "hap" else "ClusterHaplotypeHeatmap"
     _save_formats(fig, result.output_prefix + "." + stem, plot_formats)
 
@@ -385,6 +451,7 @@ def plot_gene_structure_with_haps(
     ref_color=DEFAULT_REF_COLOR,
     alt_color=DEFAULT_ALT_COLOR,
     missing_color=DEFAULT_MISSING_COLOR,
+    cell_text: Optional[str] = None,
 ):
     features, gene, strand = _gene_context(result, gff_file)
     if gene is None:
@@ -398,12 +465,13 @@ def plot_gene_structure_with_haps(
     ag = fig.add_subplot(gs[0])
     ah = fig.add_subplot(gs[1])
     _draw_gene_structure(ag, result, features, gene, strand, show_legend=True)
+    # Set final margins before drawing so dynamic cell-text sizing uses the rendered heatmap box.
+    fig.subplots_adjust(left=0.18, right=0.82, bottom=0.12, top=0.95)
     meta = _draw_heatmap(
         ah, result, plot_hap_level, plot_min_count, ref_color, alt_color, missing_color,
-        None, reverse_variants=(strand == "-"), show_legend=True,
+        None, reverse_variants=(strand == "-"), show_legend=True, cell_text=cell_text,
     )
-    # Apply final margins first, then match the gene axis to the actual rendered heatmap width.
-    fig.subplots_adjust(left=0.18, right=0.82, bottom=0.12, top=0.95)
+    # Match the gene axis to the actual rendered heatmap width.
     fig.canvas.draw()
     gp = ag.get_position(); hp = ah.get_position()
     ag.set_position([hp.x0, gp.y0, hp.width, gp.height])
@@ -755,10 +823,285 @@ def plot_ld_heatmap(result: HapResult, plot_formats: Sequence[str], gff_file: Op
 
 
 
+
+
+def _load_world_lines() -> Dict[str, List[List[List[float]]]]:
+    """Load the embedded coastline/country line dataset used by geographic plots."""
+    try:
+        from .world_map import get_world_lines
+        return get_world_lines()
+    except Exception:
+        return {"coastlines": [], "countries": []}
+
+
+def _draw_world_background(ax, lons: Sequence[float], lats: Sequence[float]) -> None:
+    data = _load_world_lines()
+    for key, lw, alpha in (("coastlines", 0.65, 0.75), ("countries", 0.35, 0.45)):
+        for seg in data.get(key, []):
+            if len(seg) < 2:
+                continue
+            arr = np.asarray(seg, dtype=float)
+            ax.plot(arr[:, 0], arr[:, 1], color="0.35", linewidth=lw, alpha=alpha, zorder=0)
+
+    lon_min, lon_max = float(np.min(lons)), float(np.max(lons))
+    lat_min, lat_max = float(np.min(lats)), float(np.max(lats))
+    lon_span = max(1.0, lon_max - lon_min)
+    lat_span = max(1.0, lat_max - lat_min)
+    pad_x = max(8.0, lon_span * 0.14)
+    pad_y = max(5.0, lat_span * 0.18)
+    ax.set_xlim(max(-180, lon_min - pad_x), min(180, lon_max + pad_x))
+    ax.set_ylim(max(-60, lat_min - pad_y), min(85, lat_max + pad_y))
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.grid(True, linestyle=":", linewidth=0.45, alpha=0.35)
+    ax.set_aspect("auto")
+
+
+def _map_haplotype_table(
+    hap_group_df: pd.DataFrame,
+    group_metadata: Optional[pd.DataFrame],
+    plot_hap_level: str,
+    plot_min_count: int,
+) -> Tuple[pd.DataFrame, List[str]]:
+    if group_metadata is None or group_metadata.empty:
+        return pd.DataFrame(), []
+    class_col = "Hap" if plot_hap_level == "hap" else "ClusterID"
+    required = {"Accession", "Latitude", "Longitude"}
+    if class_col not in hap_group_df.columns or not required.issubset(set(group_metadata.columns)):
+        return pd.DataFrame(), []
+    meta = group_metadata.copy()
+    meta["Latitude"] = pd.to_numeric(meta["Latitude"], errors="coerce")
+    meta["Longitude"] = pd.to_numeric(meta["Longitude"], errors="coerce")
+    meta = meta.dropna(subset=["Latitude", "Longitude"])
+    if meta.empty:
+        return pd.DataFrame(), []
+    merged = meta.merge(hap_group_df[["Accession", class_col]], on="Accession", how="inner")
+    if merged.empty:
+        return pd.DataFrame(), []
+    global_counts = merged[class_col].value_counts()
+    keep = list(global_counts[global_counts >= max(1, int(plot_min_count))].index)
+    merged = merged[merged[class_col].isin(keep)].copy()
+    if merged.empty:
+        return pd.DataFrame(), []
+    if "Location" not in merged.columns:
+        merged["Location"] = pd.NA
+    merged["Location"] = merged["Location"].fillna("").astype(str)
+    tab = (
+        merged.groupby(["Latitude", "Longitude", "Location", class_col], dropna=False)
+        .size().rename("Count").reset_index()
+    )
+    return tab, sorted(keep, key=_natural_key)
+
+
+def _draw_geo_pies(ax, table: pd.DataFrame, classes: Sequence[str], color_map: Dict[str, object]) -> None:
+    if table.empty:
+        return
+    xspan = max(1.0, ax.get_xlim()[1] - ax.get_xlim()[0])
+    yspan = max(1.0, ax.get_ylim()[1] - ax.get_ylim()[0])
+    base = 0.018 * min(xspan, yspan)
+    site_count = table.groupby(["Latitude", "Longitude", "Location"]).ngroups
+    show_labels = site_count <= 8
+    max_total = int(table.groupby(["Latitude", "Longitude", "Location"])["Count"].sum().max())
+    for (lat, lon, loc), part in table.groupby(["Latitude", "Longitude", "Location"], sort=False):
+        counts = {str(r.iloc[-2]): int(r["Count"]) for _, r in part.iterrows()}
+        total = sum(counts.values())
+        radius = base * (0.85 + 0.75 * math.sqrt(total / max(1, max_total)))
+        start = 90.0
+        for cls in classes:
+            count = counts.get(str(cls), 0)
+            if count <= 0:
+                continue
+            frac = count / total
+            theta2 = start + 360.0 * frac
+            ax.add_patch(Wedge((float(lon), float(lat)), radius, start, theta2,
+                               facecolor=color_map[cls], edgecolor="white", linewidth=0.55, zorder=5))
+            start = theta2
+        ax.add_patch(plt.Circle((float(lon), float(lat)), radius, fill=False,
+                                edgecolor="0.2", linewidth=0.55, zorder=6))
+        label = str(loc).strip()
+        if show_labels and label and label.lower() != "nan":
+            ax.text(float(lon), float(lat) - radius * 1.35, label, ha="center", va="top", fontsize=7, zorder=7)
+
+
+def _draw_geo_bars(ax, table: pd.DataFrame, classes: Sequence[str], color_map: Dict[str, object]) -> None:
+    if table.empty:
+        return
+    xspan = max(1.0, ax.get_xlim()[1] - ax.get_xlim()[0])
+    yspan = max(1.0, ax.get_ylim()[1] - ax.get_ylim()[0])
+    width = 0.016 * xspan
+    height = 0.070 * yspan
+    site_count = table.groupby(["Latitude", "Longitude", "Location"]).ngroups
+    show_labels = site_count <= 8
+    for (lat, lon, loc), part in table.groupby(["Latitude", "Longitude", "Location"], sort=False):
+        counts = {str(r.iloc[-2]): int(r["Count"]) for _, r in part.iterrows()}
+        total = sum(counts.values())
+        bottom = float(lat) - height / 2.0
+        for cls in classes:
+            count = counts.get(str(cls), 0)
+            if count <= 0:
+                continue
+            h = height * count / total
+            ax.add_patch(Rectangle((float(lon) - width / 2.0, bottom), width, h,
+                                   facecolor=color_map[cls], edgecolor="white", linewidth=0.45, zorder=5))
+            bottom += h
+        ax.add_patch(Rectangle((float(lon) - width / 2.0, float(lat) - height / 2.0), width, height,
+                               fill=False, edgecolor="0.2", linewidth=0.55, zorder=6))
+        label = str(loc).strip()
+        if show_labels and label and label.lower() != "nan":
+            ax.text(float(lon), float(lat) - height * 0.68, label, ha="center", va="top", fontsize=7, zorder=7)
+
+
+def plot_haplotype_geography(
+    result: HapResult,
+    hap_group_df: pd.DataFrame,
+    group_metadata: Optional[pd.DataFrame],
+    plot_formats: Sequence[str],
+    plot_hap_level: str = "hap",
+    plot_min_count: int = 1,
+    hap_palette: Optional[Sequence[str]] = None,
+    map_style: str = "auto",
+) -> None:
+    style = str(map_style or "auto").strip().lower()
+    if style == "none":
+        return
+    table, classes = _map_haplotype_table(hap_group_df, group_metadata, plot_hap_level, plot_min_count)
+    if table.empty or not classes:
+        return
+    styles = ["pie"] if style == "auto" else (["pie", "bar"] if style == "both" else [style])
+    if any(x not in {"pie", "bar"} for x in styles):
+        raise ValueError("map_style must be one of auto, pie, bar, both, none")
+    color_map = _hap_color_map(classes, hap_palette)
+    lons = table["Longitude"].astype(float).to_numpy()
+    lats = table["Latitude"].astype(float).to_numpy()
+    for current in styles:
+        fig, ax = plt.subplots(figsize=(10.5, 6.2))
+        _draw_world_background(ax, lons, lats)
+        if current == "pie":
+            _draw_geo_pies(ax, table, classes, color_map)
+            title = "Geographic haplotype distribution (pie)"
+            stem = "HaplotypeMapPie"
+        else:
+            _draw_geo_bars(ax, table, classes, color_map)
+            title = "Geographic haplotype distribution (stacked bar)"
+            stem = "HaplotypeMapStackedBar"
+        handles = [Patch(facecolor=color_map[c], edgecolor="none", label=str(c)) for c in classes]
+        ax.legend(handles=handles, title=("Haplotype" if plot_hap_level == "hap" else "Cluster"),
+                  frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
+        ax.set_title(f"{title}: {result.region.vcf_label}")
+        fig.subplots_adjust(left=0.08, right=0.82, bottom=0.10, top=0.90)
+        _save_formats(fig, result.output_prefix + "." + stem, plot_formats)
+
+
+def _hap_distance(seq1: Sequence[str], seq2: Sequence[str]) -> int:
+    """Number of differing variant states between two haplotypes."""
+    return int(sum(str(a) != str(b) for a, b in zip(seq1, seq2)))
+
+
+def _network_counts(result: HapResult, group_map: Dict[str, str], min_count: int):
+    copy_counts: Dict[str, int] = {h: 0 for h in result.hap_sequences}
+    by_group: Dict[str, Dict[str, int]] = {h: {} for h in result.hap_sequences}
+    for sample, haps in result.sample_haps.items():
+        group = group_map.get(sample, "NA")
+        for hap in haps:
+            copy_counts[hap] = copy_counts.get(hap, 0) + 1
+            by_group.setdefault(hap, {})[group] = by_group.setdefault(hap, {}).get(group, 0) + 1
+    keep = [h for h in sorted(result.hap_sequences, key=_natural_key)
+            if copy_counts.get(h, 0) >= max(1, int(min_count))]
+    return keep, copy_counts, by_group
+
+
+def plot_haplotype_network(
+    result: HapResult,
+    group_map: Dict[str, str],
+    plot_formats: Sequence[str],
+    plot_min_count: int = 1,
+) -> None:
+    nodes, copy_counts, by_group = _network_counts(result, group_map, plot_min_count)
+    if not nodes:
+        return
+    graph = nx.Graph()
+    for h in nodes:
+        graph.add_node(h)
+    for i, h1 in enumerate(nodes):
+        for h2 in nodes[i + 1:]:
+            d = max(1, _hap_distance(result.hap_sequences[h1], result.hap_sequences[h2]))
+            graph.add_edge(h1, h2, distance=d)
+    mst = graph if len(nodes) == 1 else nx.minimum_spanning_tree(graph, weight="distance", algorithm="kruskal")
+
+    edge_path = result.output_prefix + ".HaplotypeNetworkEdges.tsv"
+    with open(edge_path, "w", encoding="utf-8") as fh:
+        fh.write("Haplotype1\tHaplotype2\tMutationalDistance\n")
+        for u, v, d in sorted(mst.edges(data=True), key=lambda x: (_natural_key(x[0]), _natural_key(x[1]))):
+            fh.write(f"{u}\t{v}\t{int(d.get('distance', 1))}\n")
+
+    if len(nodes) == 1:
+        pos = {nodes[0]: np.array([0.0, 0.0])}
+    else:
+        pos = nx.kamada_kawai_layout(mst, weight="distance", scale=1.0)
+    groups = sorted({g for h in nodes for g in by_group.get(h, {})}, key=_natural_key)
+    group_colors = _hap_color_map(groups, None)
+
+    fig, ax = plt.subplots(figsize=(8.0, 7.0))
+    xs = [float(pos[h][0]) for h in nodes]; ys = [float(pos[h][1]) for h in nodes]
+    span = max(max(xs) - min(xs) if len(xs) > 1 else 1.0,
+               max(ys) - min(ys) if len(ys) > 1 else 1.0, 1.0)
+    center_x = float(np.mean(xs)); center_y = float(np.mean(ys))
+
+    for u, v, d in mst.edges(data=True):
+        x1, y1 = map(float, pos[u]); x2, y2 = map(float, pos[v])
+        ax.plot([x1, x2], [y1, y2], color="0.35", linewidth=1.25, zorder=1)
+        dist = int(d.get("distance", 1))
+        dx, dy = x2 - x1, y2 - y1
+        norm = math.hypot(dx, dy) or 1.0
+        off = 0.018 * span
+        lx = (x1 + x2) / 2.0 - dy / norm * off
+        ly = (y1 + y2) / 2.0 + dx / norm * off
+        ax.text(lx, ly, str(dist), fontsize=8,
+                ha="center", va="center", bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.8}, zorder=4)
+
+    max_count = max(copy_counts[h] for h in nodes)
+    for h in nodes:
+        x, y = map(float, pos[h])
+        total = max(1, copy_counts[h])
+        radius = 0.032 * span * (0.8 + 0.70 * math.sqrt(total / max_count))
+        start = 90.0
+        for g in groups:
+            count = by_group.get(h, {}).get(g, 0)
+            if count <= 0:
+                continue
+            theta2 = start + 360.0 * count / total
+            ax.add_patch(Wedge((x, y), radius, start, theta2, facecolor=group_colors[g],
+                               edgecolor="white", linewidth=0.6, zorder=5))
+            start = theta2
+        ax.add_patch(plt.Circle((x, y), radius, fill=False, edgecolor="black", linewidth=0.8, zorder=6))
+        vx, vy = x - center_x, y - center_y
+        if abs(vx) < 1e-8 and abs(vy) < 1e-8:
+            vx, vy = 1.0, 0.0
+        vnorm = math.hypot(vx, vy) or 1.0
+        lx = x + vx / vnorm * radius * 1.35
+        ly = y + vy / vnorm * radius * 1.35
+        ha = "left" if vx >= 0 else "right"
+        va = "bottom" if vy >= 0 else "top"
+        ax.text(lx, ly, f"{h} (n={total})", ha=ha, va=va, fontsize=8.5, zorder=7)
+
+    pad = 0.22 * span
+    ax.set_xlim(min(xs) - pad, max(xs) + pad)
+    ax.set_ylim(min(ys) - pad, max(ys) + pad)
+    ax.set_aspect("equal", adjustable="box")
+    ax.axis("off")
+    handles = [Patch(facecolor=group_colors[g], edgecolor="none", label=str(g)) for g in groups]
+    if handles:
+        ax.legend(handles=handles, title="Group", frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
+    ax.set_title(f"Minimum-spanning haplotype network: {result.region.vcf_label}\nEdge labels = mutational distance")
+    fig.subplots_adjust(left=0.05, right=0.82, bottom=0.05, top=0.90)
+    _save_formats(fig, result.output_prefix + ".HaplotypeNetwork", plot_formats)
+
+
 def make_all_plots(
     result: HapResult,
     hap_group_df: pd.DataFrame,
     group_map: Dict[str, str],
+    group_metadata: Optional[pd.DataFrame] = None,
     gff_file: Optional[str] = None,
     plot_formats: Sequence[str] = ("pdf",),
     traits_to_plot: Optional[Sequence[str]] = None,
@@ -768,15 +1111,30 @@ def make_all_plots(
     alt_color=DEFAULT_ALT_COLOR,
     missing_color=DEFAULT_MISSING_COLOR,
     make_ld_plot: bool = True,
+    make_network_plot: bool = True,
+    map_style: str = "auto",
     hap_palette: Optional[Sequence[str]] = None,
     ld_cmap: Optional[str] = None,
+    cell_text: Optional[str] = None,
 ):
     # Standalone figures.
-    plot_haplotype_heatmap(result, plot_formats, plot_hap_level, plot_min_count, ref_color, alt_color, missing_color)
-    plot_gene_structure_with_haps(result, gff_file, plot_formats, plot_hap_level, plot_min_count, ref_color, alt_color, missing_color)
+    plot_haplotype_heatmap(
+        result, plot_formats, plot_hap_level, plot_min_count,
+        ref_color, alt_color, missing_color, cell_text=cell_text,
+    )
+    plot_gene_structure_with_haps(
+        result, gff_file, plot_formats, plot_hap_level, plot_min_count,
+        ref_color, alt_color, missing_color, cell_text=cell_text,
+    )
     if group_map:
         plot_group_distribution(result, hap_group_df, plot_formats, plot_hap_level, plot_min_count, hap_palette=hap_palette)
         plot_group_pie_chart(result, hap_group_df, plot_formats, plot_hap_level, plot_min_count, hap_palette=hap_palette)
+        plot_haplotype_geography(
+            result, hap_group_df, group_metadata, plot_formats, plot_hap_level, plot_min_count,
+            hap_palette=hap_palette, map_style=map_style,
+        )
+    if make_network_plot:
+        plot_haplotype_network(result, group_map, plot_formats, plot_min_count=plot_min_count)
     plot_trait_boxplots(result, hap_group_df, traits_to_plot, plot_formats, plot_hap_level, plot_min_count, hap_palette=hap_palette)
     if make_ld_plot:
         plot_ld_heatmap(result, plot_formats, gff_file=gff_file, ld_cmap=ld_cmap)

@@ -1,7 +1,7 @@
-EasyHap 1.0 demonstration dataset
+EasyHap demonstration dataset
 
 Shared inputs:
-- sample_group.tsv: 120 samples (60 Cultivar and 60 Landrace)
+- sample_group.tsv: 120 samples (40 Cultivar, 40 Landrace, and 40 Wild) with optional latitude/longitude and location labels for geographic haplotype plotting
 - traits.tsv: two numeric traits with designed haplotype effects
 - demo.gff3: one complete gene model at ChrDemo:1000-2800
 - regions.tsv: ChrDemo:900-2900
@@ -11,17 +11,23 @@ VCF inputs:
 - demo_diploid_multiallelic.vcf: 120 phased diploid samples
 - demo_triploid_multiallelic.vcf: 120 phased triploid samples
 
-Expected analysis settings:
+Suggested command for the new visualization functions:
+easyhap analyze --vcf demo_diploid_multiallelic.vcf --region-file regions.tsv --outdir demo_results --group sample_group.tsv --traits traits.tsv --gff demo.gff3 --plot --map-style both
+
+New reproducible outputs include:
+- *.HaplotypeMapPie.pdf: geographic haplotype composition shown as pies
+- *.HaplotypeMapStackedBar.pdf: geographic haplotype composition shown as stacked bars
+- *.HaplotypeNetwork.pdf: minimum-spanning haplotype network
+- *.HaplotypeNetworkEdges.tsv: network edges and mutational distances
+
+Gene-feature filtering examples:
+- --gene-feature exon retains the demo variants that fall within annotated exons
+- --gene-feature cds retains 7 of the 8 demo variants (the position 2700 variant is in the annotated 3' UTR)
+- --gene-feature intron finds no demo variants in this particular VCF and the region is therefore skipped when --min-variants >= 1
+
+Optional Fisher filtering settings:
 - Fisher comparison: Cultivar versus Landrace
 - Fisher alpha: 0.05
 - Fisher adjustment: none
 - Cluster threshold: 0.20
 - Region: ChrDemo:900-2900
-
-Expected results for each VCF after Fisher filtering:
-- Input variants: 8
-- Retained variants: 6
-- Raw haplotypes: 6
-- Haplotype clusters: 3
-- At least one raw haplotype is represented by fewer than 5 samples
-- Plant_height and Seed_weight show strong differences among major haplotype/cluster classes

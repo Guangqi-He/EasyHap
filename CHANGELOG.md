@@ -1,5 +1,22 @@
 # EasyHap changelog
 
+## 1.2.0
+
+### Geographic and network visualization
+- Extended the sample-group file to optionally accept latitude, longitude, and location columns while retaining compatibility with the historical two-column format.
+- Added geographic haplotype maps with pie or stacked-bar overlays through `--map-style auto|pie|bar|both|none`.
+- Added minimum-spanning haplotype networks with node size proportional to haplotype copy count, group composition shown as node pies, and mutational distance on edges.
+- Added `*.HaplotypeNetworkEdges.tsv` for the network topology and edge distances.
+
+### Gene-structure variant filtering
+- Added `--gene-feature all|exon|intron|cds|utr` to determine which variants participate in haplotype reconstruction and downstream analyses.
+- Non-`all` feature filtering requires `--gff`; introns are inferred from the primary overlapping gene as gene sequence not covered by exons.
+- Added `*.GeneFeatureFilter.tsv` to report original and retained variant counts and the intervals used for filtering.
+
+### GUI and examples
+- Added GUI controls for geographic map style, haplotype network output, and gene-feature filtering.
+- Updated the demonstration `sample_group.tsv` with reproducible geographic coordinates and location labels.
+
 ## 1.1.0
 
 ### Workflow and stability

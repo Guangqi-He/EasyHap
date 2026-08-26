@@ -7,10 +7,11 @@ import os
 
 import pandas as pd
 
-from .io_utils import ensure_dir, read_group_file, read_trait_file, sanitize_filename
+from .io_utils import ensure_dir, read_group_metadata, read_trait_file, sanitize_filename
 from .stats import bh_adjust, connected_component_clusters, fisher_exact_2x2
 from .vcf_reader import MISSING_ALLELE, Region, VCFReader, VariantCall, read_regions, token_for_gt
 from .research import write_population_haplotype_statistics, write_trait_association, write_ld_outputs
+from .annotation import filter_calls_by_gene_feature
 
 IUPAC = {
     frozenset({"A", "G"}): "R",
@@ -371,6 +372,7 @@ def run_region_analysis(
     write_processed: bool = True,
     make_plots: bool = False,
     gff_file: Optional[str] = None,
+    gene_feature: str = "all",
     plot_formats: Sequence[str] = ("pdf",),
     traits_to_plot: Optional[Sequence[str]] = None,
     plot_hap_level: str = "hap",
@@ -380,23 +382,47 @@ def run_region_analysis(
     alt_color: str = "#4472C4",
     missing_color: str = "#D9D9D9",
     make_ld: bool = True,
+    make_network: bool = True,
+    map_style: str = "auto",
     hap_palette: Optional[Sequence[str]] = None,
     ld_cmap: Optional[str] = None,
 ) -> HapResult:
     ensure_dir(outdir)
     reader = VCFReader(vcf_path, prefer=vcf_backend)
-    group_map = read_group_file(group_file)
-    if group_map:
+    group_metadata = read_group_metadata(group_file)
+    if not group_metadata.empty:
+        group_map = dict(zip(group_metadata["Accession"].astype(str), group_metadata["Type"].astype(str)))
         samples = _sample_pool(reader.samples, group_map)
     else:
         samples = list(reader.samples)
         group_map = {s: "All" for s in samples}
+        group_metadata = pd.DataFrame({
+            "Accession": samples, "Type": ["All"] * len(samples),
+            "Latitude": [pd.NA] * len(samples), "Longitude": [pd.NA] * len(samples),
+            "Location": [pd.NA] * len(samples),
+        })
     traits = read_trait_file(trait_file)
 
     calls = list(reader.iter_region(region))
+    original_call_count = len(calls)
+    requested_feature = str(gene_feature or "all").strip().lower()
+    if requested_feature != "all":
+        if not gff_file:
+            raise ValueError(f"--gene-feature {requested_feature} requires --gff")
+        calls, feature_intervals, primary_gene = filter_calls_by_gene_feature(
+            calls, gff_file, region, requested_feature
+        )
+    else:
+        feature_intervals, primary_gene = [(region.start, region.end)], None
+    feature_filtered_count = len(calls)
+
     if len(calls) < max(1, int(min_variants)):
+        detail = (
+            f" after --gene-feature {requested_feature} filtering (from {original_call_count} regional variants)"
+            if requested_feature != "all" else ""
+        )
         raise ValueError(
-            f"Insufficient variants in region {region.vcf_label}: found {len(calls)}, "
+            f"Insufficient variants in region {region.vcf_label}{detail}: found {len(calls)}, "
             f"minimum required is {max(1, int(min_variants))}"
         )
 
@@ -411,6 +437,13 @@ def run_region_analysis(
 
     safe_label = sanitize_filename(region.label)
     prefix = os.path.join(outdir, safe_label)
+    if requested_feature != "all":
+        with open(prefix + ".GeneFeatureFilter.tsv", "w", encoding="utf-8") as fh:
+            fh.write("Region\tGeneFeature\tOriginalVariants\tFeatureRetainedVariants\tFinalRetainedVariants\tIntervals\n")
+            interval_text = ";".join(f"{s}-{e}" for s, e in feature_intervals)
+            fh.write(
+                f"{region.vcf_label}\t{requested_feature}\t{original_call_count}\t{feature_filtered_count}\t{len(calls)}\t{interval_text}\n"
+            )
     if fisher_df is not None:
         fisher_df.to_csv(prefix + ".FisherFilter.tsv", sep="\t", index=False)
     if write_processed:
@@ -453,6 +486,7 @@ def run_region_analysis(
             result=result,
             hap_group_df=hap_group_df,
             group_map=group_map,
+            group_metadata=group_metadata,
             gff_file=gff_file,
             plot_formats=plot_formats,
             traits_to_plot=traits_to_plot,
@@ -462,6 +496,8 @@ def run_region_analysis(
             alt_color=alt_color,
             missing_color=missing_color,
             make_ld_plot=make_ld,
+            make_network_plot=make_network,
+            map_style=map_style,
             hap_palette=hap_palette,
             ld_cmap=ld_cmap,
         )
@@ -495,7 +531,7 @@ def run_analysis(
                 log.write(f"[INFO] Completed {reg.vcf_label}; variants={len(res.variants)}; haplotypes={len(res.hap_sequences)}\n")
             except ValueError as exc:
                 msg = str(exc)
-                if "variants" in msg.lower() or "filter" in msg.lower():
+                if "variants" in msg.lower() or "filter" in msg.lower() or "--gene-feature" in msg.lower():
                     log.write(f"[WARNING] Skipped {reg.vcf_label}: {msg}\n")
                     print(f"[EasyHap] SKIP {reg.vcf_label}: {msg}")
                     continue

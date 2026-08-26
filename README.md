@@ -5,9 +5,8 @@
 **EasyHap** is a cross-platform toolkit for regional haplotype analysis and visualization using phased VCF data from fungal, plant, and animal population resequencing projects.
 EasyHap automatically recognizes haploid, diploid, and polyploid genotypes, supports both inbred/selfing and hybrid/outcrossing analysis strategies, and integrates variant recoding, haplotype reconstruction, population comparison, sequence-similarity clustering, sequence export, phenotype association, and publication-ready visualization.
 
-Repository: https://github.com/Guangqi-He/EasyHap  
 Documentation: https://github.com/Guangqi-He/EasyHap/wiki  
-License: GPL-3.0-or-later
+
 ## Workflow 
 ![EasyHap workflow](images/EasyHap_workflow3.png)
 ## Key features
@@ -21,16 +20,15 @@ License: GPL-3.0-or-later
 - Pairwise dosage-based LD (`r²`) and inverted-triangle LD heatmaps
 - Strand-aware gene structure + haplotype and gene structure + LD visualizations
 - Pie charts, stacked barplots, trait boxplots, and REF/ALT haplotype heatmaps
+- Geographic and network visualization
+- Gene-structure variant filtering
 - Custom allele colors, haplotype color palettes, and LD heatmap colormaps
 - FASTA, PHYLIP, and NEXUS haplotype sequence export
 - PDF, SVG, and high-resolution PNG figures
 - Batch-region analysis with automatic skipping of low-information intervals
 - Command-line and Tkinter graphical interfaces
 
-## What's new in 1.1.0
-
-EasyHap 1.1.0 improves multi-region robustness and expands population, trait, LD, and visualization functions. Recent plotting refinements include aligned gene/heatmap panels, compact square haplotype cells, gene-to-variant connectors, inverted-triangle LD plots, group pie charts, significance-annotated trait boxplots, and configurable haplotype/LD color palettes.
-
+## What's new in 1.2.0
 See [CHANGELOG.md](CHANGELOG.md) for the detailed change history.
 
 ## Installation
@@ -43,7 +41,7 @@ python -m pip install -r requirements.txt
 python -m pip install -e .
 easyhap analyze --help
 ```
-### installation in a Conda environment
+#### installation in a Conda environment
 ```bash
 conda create -n easyhap python=3.10 -y
 conda activate easyhap
@@ -55,18 +53,18 @@ easyhap analyze --help
 ```
 ### Windows
 The Windows release provides a standalone executable and does not require a separate Python installation.
-1. Download and extract `EasyHap-1.1.0.zip`.
+1. Download and extract `EasyHap-1.0.zip`.
 2. Open the `windows` directory.
 3. Double-click `EasyHap.exe`.
 4. Use the supplied example files to test the workflow.
-![EasyHap window](images/GUI.png)
+![EasyHap window](images/EasyHap_win.png)
 
 ## Quick start
 ### Minimal analysis
 ```bash
 easyhap analyze --vcf input.vcf.gz --region Chr10:100000-120000
 ```
-GUIOnly a phased VCF/VCF.GZ/BCF file and one region source (`--region` or `--region-file`) are required. Results are written to `EasyHap_results` by default.
+Only a phased VCF/VCF.GZ/BCF file and one region source (`--region` or `--region-file`) are required. Results are written to `EasyHap_results` by default.
 ### Population analysis with figures
 ```bash
 easyhap analyze --vcf input.vcf.gz --group groups.tsv --region Chr10:100000-120000 --plot --outdir GeneA_results
@@ -106,6 +104,7 @@ easyhap analyze --vcf input.vcf.gz --group groups.tsv --region Chr10:100000-1200
 | `--mode` | `inbred` | Haplotype reconstruction mode: `inbred` or `hybrid` |
 | `--hetero-policy` | `slash` | Heterozygous-site encoding in inbred mode: `slash`, `iupac`, or `missing` |
 | `--min-variants` | `2` | Minimum retained variants required for a region |
+| `--gene-feature` | `all` | Restrict variants to the selected feature of the primary overlapping gene; non-all choices require --gff [all] |
 | `--cluster-threshold` | `0.15` | Sequence-distance threshold for haplotype clustering |
 | `--fisher-groups` | — | Two comma-separated groups for optional variant filtering |
 | `--fisher-alpha` | — | Significance threshold for Fisher filtering |
@@ -128,6 +127,9 @@ easyhap analyze --vcf input.vcf.gz --group groups.tsv --region Chr10:100000-1200
 | `--missing-color` | `#D9D9D9` | Missing-data cell color in haplotype heatmaps |
 | `--hap-palette` | built-in palette | Comma-separated haplotype colors used consistently in pie, stacked-bar, and trait boxplots |
 | `--ld-cmap` | `viridis` | Matplotlib colormap used for the LD heatmap |
+| `--cell-text` | `auto` | Allele/base labels inside haplotype heatmap cells |
+| `--map-style` | `auto` | Geographic haplotype overlay when sample-group columns 3-4 contain latitude/longitude: auto=pie [auto] |
+| `--no-network` | `auto` | Disable minimum-spanning haplotype network output |
 
 For the full input specifications, statistical definitions, output-file descriptions, examples, and troubleshooting, see the [EasyHap Wiki](https://github.com/Guangqi-He/EasyHap/wiki).
 

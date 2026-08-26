@@ -1,120 +1,121 @@
-C001	Cultivar
-C002	Cultivar
-C003	Cultivar
-C004	Cultivar
-C005	Cultivar
-C006	Cultivar
-C007	Cultivar
-C008	Cultivar
-C009	Cultivar
-C010	Cultivar
-C011	Cultivar
-C012	Cultivar
-C013	Cultivar
-C014	Cultivar
-C015	Cultivar
-C016	Cultivar
-C017	Cultivar
-C018	Cultivar
-C019	Cultivar
-C020	Cultivar
-C021	Cultivar
-C022	Cultivar
-C023	Cultivar
-C024	Cultivar
-C025	Cultivar
-C026	Cultivar
-C027	Cultivar
-C028	Cultivar
-C029	Cultivar
-C030	Cultivar
-C031	Cultivar
-C032	Cultivar
-C033	Cultivar
-C034	Cultivar
-C035	Cultivar
-C036	Cultivar
-C037	Cultivar
-C038	Cultivar
-C039	Cultivar
-C040	Cultivar
-C041	Landrace
-C042	Landrace
-C043	Landrace
-C044	Landrace
-C045	Landrace
-C046	Landrace
-C047	Landrace
-C048	Landrace
-C049	Landrace
-C050	Landrace
-C051	Landrace
-C052	Landrace
-C053	Landrace
-C054	Landrace
-C055	Landrace
-C056	Landrace
-C057	Landrace
-C058	Landrace
-C059	Landrace
-C060	Landrace
-L001	Landrace
-L002	Landrace
-L003	Landrace
-L004	Landrace
-L005	Landrace
-L006	Landrace
-L007	Landrace
-L008	Landrace
-L009	Landrace
-L010	Landrace
-L011	Landrace
-L012	Landrace
-L013	Landrace
-L014	Landrace
-L015	Landrace
-L016	Landrace
-L017	Landrace
-L018	Landrace
-L019	Landrace
-L020	Landrace
-L021	Wild
-L022	Wild
-L023	Wild
-L024	Wild
-L025	Wild
-L026	Wild
-L027	Wild
-L028	Wild
-L029	Wild
-L030	Wild
-L031	Wild
-L032	Wild
-L033	Wild
-L034	Wild
-L035	Wild
-L036	Wild
-L037	Wild
-L038	Wild
-L039	Wild
-L040	Wild
-L041	Wild
-L042	Wild
-L043	Wild
-L044	Wild
-L045	Wild
-L046	Wild
-L047	Wild
-L048	Wild
-L049	Wild
-L050	Wild
-L051	Wild
-L052	Wild
-L053	Wild
-L054	Wild
-L055	Wild
-L056	Wild
-L057	Wild
-L058	Wild
-L059	Wild
-L060	Wild
+#sample	group	latitude	longitude	location
+C001	Cultivar	35.6762	139.6503	Tokyo_Japan
+C002	Cultivar	35.6762	139.6503	Tokyo_Japan
+C003	Cultivar	35.6762	139.6503	Tokyo_Japan
+C004	Cultivar	35.6762	139.6503	Tokyo_Japan
+C005	Cultivar	35.6762	139.6503	Tokyo_Japan
+C006	Cultivar	35.6762	139.6503	Tokyo_Japan
+C007	Cultivar	35.6762	139.6503	Tokyo_Japan
+C008	Cultivar	35.6762	139.6503	Tokyo_Japan
+C009	Cultivar	35.6762	139.6503	Tokyo_Japan
+C010	Cultivar	35.6762	139.6503	Tokyo_Japan
+C011	Cultivar	40.1106	-88.2073	Urbana_USA
+C012	Cultivar	40.1106	-88.2073	Urbana_USA
+C013	Cultivar	40.1106	-88.2073	Urbana_USA
+C014	Cultivar	40.1106	-88.2073	Urbana_USA
+C015	Cultivar	40.1106	-88.2073	Urbana_USA
+C016	Cultivar	40.1106	-88.2073	Urbana_USA
+C017	Cultivar	40.1106	-88.2073	Urbana_USA
+C018	Cultivar	40.1106	-88.2073	Urbana_USA
+C019	Cultivar	40.1106	-88.2073	Urbana_USA
+C020	Cultivar	40.1106	-88.2073	Urbana_USA
+C021	Cultivar	48.8566	2.3522	Paris_France
+C022	Cultivar	48.8566	2.3522	Paris_France
+C023	Cultivar	48.8566	2.3522	Paris_France
+C024	Cultivar	48.8566	2.3522	Paris_France
+C025	Cultivar	48.8566	2.3522	Paris_France
+C026	Cultivar	48.8566	2.3522	Paris_France
+C027	Cultivar	48.8566	2.3522	Paris_France
+C028	Cultivar	48.8566	2.3522	Paris_France
+C029	Cultivar	48.8566	2.3522	Paris_France
+C030	Cultivar	48.8566	2.3522	Paris_France
+C031	Cultivar	-27.4698	153.0251	Brisbane_Australia
+C032	Cultivar	-27.4698	153.0251	Brisbane_Australia
+C033	Cultivar	-27.4698	153.0251	Brisbane_Australia
+C034	Cultivar	-27.4698	153.0251	Brisbane_Australia
+C035	Cultivar	-27.4698	153.0251	Brisbane_Australia
+C036	Cultivar	-27.4698	153.0251	Brisbane_Australia
+C037	Cultivar	-27.4698	153.0251	Brisbane_Australia
+C038	Cultivar	-27.4698	153.0251	Brisbane_Australia
+C039	Cultivar	-27.4698	153.0251	Brisbane_Australia
+C040	Cultivar	-27.4698	153.0251	Brisbane_Australia
+C041	Landrace	36.6512	117.1201	Jinan_China
+C042	Landrace	36.6512	117.1201	Jinan_China
+C043	Landrace	36.6512	117.1201	Jinan_China
+C044	Landrace	36.6512	117.1201	Jinan_China
+C045	Landrace	36.6512	117.1201	Jinan_China
+C046	Landrace	36.6512	117.1201	Jinan_China
+C047	Landrace	36.6512	117.1201	Jinan_China
+C048	Landrace	36.6512	117.1201	Jinan_China
+C049	Landrace	36.6512	117.1201	Jinan_China
+C050	Landrace	36.6512	117.1201	Jinan_China
+C051	Landrace	45.8038	126.5349	Harbin_China
+C052	Landrace	45.8038	126.5349	Harbin_China
+C053	Landrace	45.8038	126.5349	Harbin_China
+C054	Landrace	45.8038	126.5349	Harbin_China
+C055	Landrace	45.8038	126.5349	Harbin_China
+C056	Landrace	45.8038	126.5349	Harbin_China
+C057	Landrace	45.8038	126.5349	Harbin_China
+C058	Landrace	45.8038	126.5349	Harbin_China
+C059	Landrace	45.8038	126.5349	Harbin_China
+C060	Landrace	45.8038	126.5349	Harbin_China
+L001	Landrace	39.9042	116.4074	Beijing_China
+L002	Landrace	39.9042	116.4074	Beijing_China
+L003	Landrace	39.9042	116.4074	Beijing_China
+L004	Landrace	39.9042	116.4074	Beijing_China
+L005	Landrace	39.9042	116.4074	Beijing_China
+L006	Landrace	39.9042	116.4074	Beijing_China
+L007	Landrace	39.9042	116.4074	Beijing_China
+L008	Landrace	39.9042	116.4074	Beijing_China
+L009	Landrace	39.9042	116.4074	Beijing_China
+L010	Landrace	39.9042	116.4074	Beijing_China
+L011	Landrace	30.5928	114.3055	Wuhan_China
+L012	Landrace	30.5928	114.3055	Wuhan_China
+L013	Landrace	30.5928	114.3055	Wuhan_China
+L014	Landrace	30.5928	114.3055	Wuhan_China
+L015	Landrace	30.5928	114.3055	Wuhan_China
+L016	Landrace	30.5928	114.3055	Wuhan_China
+L017	Landrace	30.5928	114.3055	Wuhan_China
+L018	Landrace	30.5928	114.3055	Wuhan_China
+L019	Landrace	30.5928	114.3055	Wuhan_China
+L020	Landrace	30.5928	114.3055	Wuhan_China
+L021	Wild	37.5665	126.9780	Seoul_Korea
+L022	Wild	37.5665	126.9780	Seoul_Korea
+L023	Wild	37.5665	126.9780	Seoul_Korea
+L024	Wild	37.5665	126.9780	Seoul_Korea
+L025	Wild	37.5665	126.9780	Seoul_Korea
+L026	Wild	37.5665	126.9780	Seoul_Korea
+L027	Wild	37.5665	126.9780	Seoul_Korea
+L028	Wild	37.5665	126.9780	Seoul_Korea
+L029	Wild	37.5665	126.9780	Seoul_Korea
+L030	Wild	37.5665	126.9780	Seoul_Korea
+L031	Wild	43.0618	141.3545	Sapporo_Japan
+L032	Wild	43.0618	141.3545	Sapporo_Japan
+L033	Wild	43.0618	141.3545	Sapporo_Japan
+L034	Wild	43.0618	141.3545	Sapporo_Japan
+L035	Wild	43.0618	141.3545	Sapporo_Japan
+L036	Wild	43.0618	141.3545	Sapporo_Japan
+L037	Wild	43.0618	141.3545	Sapporo_Japan
+L038	Wild	43.0618	141.3545	Sapporo_Japan
+L039	Wild	43.0618	141.3545	Sapporo_Japan
+L040	Wild	43.0618	141.3545	Sapporo_Japan
+L041	Wild	43.1155	131.8855	Vladivostok_Russia
+L042	Wild	43.1155	131.8855	Vladivostok_Russia
+L043	Wild	43.1155	131.8855	Vladivostok_Russia
+L044	Wild	43.1155	131.8855	Vladivostok_Russia
+L045	Wild	43.1155	131.8855	Vladivostok_Russia
+L046	Wild	43.1155	131.8855	Vladivostok_Russia
+L047	Wild	43.1155	131.8855	Vladivostok_Russia
+L048	Wild	43.1155	131.8855	Vladivostok_Russia
+L049	Wild	43.1155	131.8855	Vladivostok_Russia
+L050	Wild	43.1155	131.8855	Vladivostok_Russia
+L051	Wild	43.8171	125.3235	Changchun_China
+L052	Wild	43.8171	125.3235	Changchun_China
+L053	Wild	43.8171	125.3235	Changchun_China
+L054	Wild	43.8171	125.3235	Changchun_China
+L055	Wild	43.8171	125.3235	Changchun_China
+L056	Wild	43.8171	125.3235	Changchun_China
+L057	Wild	43.8171	125.3235	Changchun_China
+L058	Wild	43.8171	125.3235	Changchun_China
+L059	Wild	43.8171	125.3235	Changchun_China
+L060	Wild	43.8171	125.3235	Changchun_China

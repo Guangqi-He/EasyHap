@@ -35,8 +35,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the detailed change history.
 ### installation with an existing Python environment
 EasyHap requires Python 3.9 or later.
 ```bash
-unzip EasyHap-xxx.zip
-cd EasyHap-xxx/Linux
+unzip EasyHap_Linux.zip
+cd EasyHap
 python -m pip install -r requirements.txt
 python -m pip install -e .
 easyhap analyze --help
@@ -53,11 +53,16 @@ easyhap analyze --help
 ```
 ### Windows
 The Windows release provides a standalone executable and does not require a separate Python installation.
-1. Download and extract `EasyHap-1.0.zip`.
-2. Open the `windows` directory.
-3. Double-click `EasyHap.exe`.
-4. Use the supplied example files to test the workflow.
-![EasyHap window](images/GUI.png)
+1. Download `EasyHap_windowns.exe`.
+2. Double-click `EasyHap.exe`.
+3. Use the supplied example files to test the workflow.
+<table>
+  <tr>
+    <td><img src="images/GUI-1.png" alt="界面1" width="100%"></td>
+    <td><img src="images/GUI-2.png" alt="界面2" width="100%"></td>
+    <td><img src="images/GUI-3.png" alt="界面3" width="100%"></td>
+  </tr>
+</table>
 
 ## Quick start
 ### Minimal analysis

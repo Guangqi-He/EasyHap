@@ -32,7 +32,7 @@ Documentation: https://github.com/Guangqi-He/EasyHap/wiki
 See [CHANGELOG.md](CHANGELOG.md) for the detailed change history.
 
 ## Installation
-### installation with an existing Python environment
+### installation with an existing Python environment (Linux/MacOS)
 EasyHap requires Python 3.9 or later.
 ```bash
 unzip EasyHap_Linux.zip
@@ -41,7 +41,7 @@ python -m pip install -r requirements.txt
 python -m pip install -e .
 easyhap analyze --help
 ```
-#### installation in a Conda environment
+#### installation in a Conda environment (Linux/MacOS)
 ```bash
 conda create -n easyhap python=3.10 -y
 conda activate easyhap
@@ -58,9 +58,13 @@ The Windows release provides a standalone executable and does not require a sepa
 3. Use the supplied example files to test the workflow.
 <table>
   <tr>
-    <td><img src="images/GUI-1.png" alt="界面1" width="100%"></td>
-    <td><img src="images/GUI-2.png" alt="界面2" width="100%"></td>
-    <td><img src="images/GUI-3.png" alt="界面3" width="100%"></td>
+    <td colspan="2" align="center">
+      <img src="images/GUI-1.png" alt="主界面" width="80%">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><img src="images/GUI-2.png" alt="界面2" width="90%"></td>
+    <td align="center"><img src="images/GUI-3.png" alt="界面3" width="90%"></td>
   </tr>
 </table>
 

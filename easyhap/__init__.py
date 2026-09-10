@@ -1,2 +1,2 @@
-"""EasyHap: ploidy-aware haplotype analysis for phased VCF data."""
-__version__ = "1.2.0"
+"""EasyHap: phase-aware and ploidy-aware regional haplotype/genotype analysis."""
+__version__ = "1.3.0"

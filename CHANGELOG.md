@@ -1,5 +1,25 @@
 # EasyHap changelog
 
+## 1.3.0
+
+### Enhancements
+- Added explicit `genotype` (phase-independent) and `copy` (copy-resolved) analysis semantics while retaining `inbred`/`hybrid` aliases.
+- Copy mode now rejects unphased heterozygous GTs instead of interpreting `/` allele order as chromosome-copy phase.
+- VCF spanning-deletion `*` and deletion-supported downstream genomic absence are encoded as `ABS`, separately from ordinary missing GT (`N`).
+- Structural absence is not repeatedly weighted in haplotype Hamming distance; the causal deletion/PAV event remains informative.
+- Multiallelic indels/SVs preserve unique VCF allele identity.
+- Added `*.VariantOverlap.tsv` reporting for same-start, nested, and deletion-contained variants.
+- Added PLINK 1 BED/BIM/FAM input (`--bfile`) for genotype mode.
+- Added reviewer-validation synthetic datasets and phased-VCF preparation examples (Beagle, WhatsHap, SHAPEIT5) to README.
+
+### PLINK input, Windows GUI, and performance
+- Added VCF/BCF versus PLINK 1 BED/BIM/FAM genotype-source selection to the Tkinter GUI, so the Windows executable can analyze PLINK datasets directly.
+- The GUI can browse any `.bed`, `.bim`, or `.fam` member and automatically derives the shared PLINK file prefix.
+- PLINK input remains restricted to phase-independent `genotype`/`inbred` mode because PLINK BED does not encode haplotype phase.
+- Replaced per-region whole-BED scans with a BIM coordinate index plus fixed-width SNP-major BED `seek()` access.
+- Batch PLINK analyses now build the BIM/FAM reader and coordinate index once and reuse it across all requested regions.
+- PLINK input accepts either a bare prefix or a `.bed`/`.bim`/`.fam` path and normalizes it to the common prefix.
+
 ## 1.2.0
 
 ### Geographic and network visualization

@@ -28,7 +28,7 @@ def _sample_hap_records(sample_haps: Dict[str, List[str]], group_map: Dict[str, 
     rows = []
     for sample, haps in sample_haps.items():
         group = group_map.get(sample, "All")
-        if mode == "inbred":
+        if str(mode).lower() in {"inbred", "genotype"}:
             hap_list = haps[:1]
         else:
             hap_list = list(haps)

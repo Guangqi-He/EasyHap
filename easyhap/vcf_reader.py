@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+import bisect
 import gzip
 import os
 import re
 
 MISSING_ALLELE = "N"
+ABSENCE_ALLELE = "ABS"
 
 
 @dataclass
@@ -106,68 +108,90 @@ def _info_get_int(info: Dict[str, str], key: str) -> Optional[int]:
     if val is None:
         return None
     try:
-        return int(str(val).split(",")[0])
+        text = str(val).split(",")[0]
+        m = re.search(r"[-+]?\d+", text)
+        return int(m.group(0)) if m else None
     except Exception:
         return None
 
 
-def _symbolic_token(allele: str, info: Optional[Dict[str, str]] = None) -> str:
-    name = allele.strip("<>").upper()
+def _symbolic_token(allele: str, info: Optional[Dict[str, str]] = None, allele_index: Optional[int] = None) -> str:
+    """Return a compact but allele-identity-preserving symbolic-variant token."""
+    name = allele.strip("<>").upper() or "SV"
     svlen = _info_get_int(info or {}, "SVLEN")
-    if svlen is not None and svlen != 0:
-        return f"{svlen:+d}"
-    if "DEL" in name or "ABS" in name:
-        return "DEL"
-    if "INS" in name or "DUP" in name or "PRE" in name:
-        return "INS"
-    if "PAV" in name:
-        return "PAV"
-    return name or "SV"
+    suffix = f":{svlen:+d}" if svlen not in (None, 0) else ""
+    prefix = f"ALT{allele_index}:" if allele_index is not None else ""
+    return f"{prefix}{name}{suffix}"
 
 
 def encode_alleles(ref: str, alts: Sequence[str], info: Optional[Dict[str, str]] = None, max_literal_len: int = 20) -> Tuple[str, ...]:
-    """Encode REF/ALT alleles into compact tokens for haplotype tables.
+    """Encode alleles while preserving every distinct VCF allele state.
 
-    SNPs and short MNPs are kept as sequence strings. For ALT alleles, length
-    differences relative to REF are encoded as +N or -N. Symbolic alleles such
-    as <INS>, <DEL>, and <PAV> are converted using SVLEN when available.
+    The first token is the REF state.  ALT tokens include their VCF allele index
+    for indels/SVs so equal-length but sequence-distinct ALT alleles can never
+    collapse to the same EasyHap state.  The VCF spanning-deletion allele `*`
+    is structural absence (ABS), not an ordinary missing genotype.
     """
-    ref = ref or "N"
-    tokens: List[str] = []
+    ref = (ref or "N").upper()
     regular_alt_lengths = [len(a) for a in alts if a and a not in {".", "*"} and not (a.startswith("<") and a.endswith(">"))]
     has_indel_or_symbolic = any(length != len(ref) for length in regular_alt_lengths) or any(
-        bool(a) and a.startswith("<") and a.endswith(">") for a in alts
+        bool(a) and (a == "*" or (a.startswith("<") and a.endswith(">"))) for a in alts
     )
-    # REF: keep SNP/MNP literal for ordinary SNP/MNP sites. For indel/SV/PAV
-    # sites, avoid writing a long REF sequence into the haplotype table.
-    if has_indel_or_symbolic and len(ref) > 1:
-        tokens.append(f"REF{len(ref)}")
-    elif len(ref) <= max_literal_len and all(c.upper() in "ACGTN." for c in ref):
-        tokens.append(ref.upper().replace(".", "N"))
+    if has_indel_or_symbolic and (len(ref) > 1 or ref == "N"):
+        ref_token = "REF" if ref == "N" else f"REF{len(ref)}"
+    elif len(ref) <= max_literal_len and all(c in "ACGTN" for c in ref):
+        ref_token = ref
     else:
-        tokens.append(f"REF{len(ref)}")
+        ref_token = f"REF{len(ref)}"
+    tokens: List[str] = [ref_token]
 
-    for alt in alts:
-        alt = alt or "."
-        if alt in {".", "*"}:
+    for idx, alt0 in enumerate(alts, 1):
+        alt = alt0 or "."
+        if alt == ".":
             tokens.append(MISSING_ALLELE)
             continue
-        if alt.startswith("<") and alt.endswith(">"):
-            tokens.append(_symbolic_token(alt, info))
+        if alt == "*":
+            tokens.append(ABSENCE_ALLELE)
             continue
-        diff = len(alt) - len(ref)
+        if alt.startswith("<") and alt.endswith(">"):
+            tokens.append(_symbolic_token(alt, info, idx))
+            continue
+        alt_u = alt.upper()
+        diff = len(alt_u) - len(ref)
+        if diff == 0 and len(alt_u) <= max_literal_len and all(c in "ACGTN" for c in alt_u):
+            tokens.append(alt_u)
+            continue
         if diff > 0:
-            tokens.append(f"+{diff}")
+            kind = f"INS+{diff}"
         elif diff < 0:
-            tokens.append(f"-{abs(diff)}")
+            kind = f"DEL-{abs(diff)}"
         else:
-            alt_u = alt.upper()
-            if len(alt_u) <= max_literal_len and all(c in "ACGTN" for c in alt_u):
-                tokens.append(alt_u)
-            else:
-                tokens.append(f"SEQ{len(alt)}")
+            kind = f"SEQ{len(alt_u)}"
+        literal = alt_u if len(alt_u) <= max_literal_len else alt_u[:8] + "..." + alt_u[-8:]
+        tokens.append(f"ALT{idx}:{kind}:{literal}")
     return tuple(tokens)
 
+
+def deletion_allele_indices(call: VariantCall) -> Tuple[int, ...]:
+    """VCF allele indices representing deletion/absence events at this record."""
+    out: List[int] = []
+    svtype = str(call.info.get("SVTYPE", "")).upper()
+    for idx, alt in enumerate(call.alts, 1):
+        a = (alt or "").upper()
+        if a == "*" or "<DEL" in a or "<CN0" in a or "<ABS" in a:
+            out.append(idx)
+        elif not a.startswith("<") and a not in {"", "."} and len(a) < len(call.ref):
+            out.append(idx)
+        elif svtype == "DEL" and idx == 1:
+            out.append(idx)
+    return tuple(sorted(set(out)))
+
+
+def deletion_end(call: VariantCall) -> int:
+    end = _info_get_int(call.info, "END")
+    if end is not None and end >= call.pos:
+        return end
+    return call.pos + max(1, len(call.ref)) - 1
 
 def token_for_gt(allele_tokens: Sequence[str], allele_index: Optional[int]) -> str:
     if allele_index is None or allele_index < 0:
@@ -370,3 +394,151 @@ class VCFReader:
                                 alleles.append(None)
                     genotypes[sample] = tuple(alleles)
                 yield VariantCall(chrom, pos, vid, ref, alts, tokens, genotypes, phased, info)
+
+
+class PlinkBedReader:
+    """PLINK 1 binary BED/BIM/FAM reader for phase-independent analysis.
+
+    PLINK BED is biallelic and unphased. EasyHap therefore exposes it only to
+    genotype/inbred mode. BIM allele 1 is represented as ALT and allele 2 as
+    REF to match PLINK's own VCF export convention; the output metadata records
+    this explicitly and does not claim that BIM allele 2 is a reference-genome
+    allele.
+
+    Region access is indexed from BIM coordinates. Instead of scanning the
+    complete BED matrix for every requested interval, ``iter_region`` locates
+    only the relevant variant records and seeks directly to their fixed-width
+    SNP-major BED blocks. This is especially important for batch analyses of
+    large PLINK datasets.
+    """
+
+    def __init__(self, prefix: str) -> None:
+        self.prefix = self._normalize_prefix(prefix)
+        self.bed = self.prefix + ".bed"
+        self.bim = self.prefix + ".bim"
+        self.fam = self.prefix + ".fam"
+        for path in (self.bed, self.bim, self.fam):
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"Missing PLINK file: {path}")
+        self.samples = self._read_fam()
+        self.variants = self._read_bim()
+        self._variant_index = self._build_variant_index()
+        self.backend = "plink-bed"
+        self._bytes_per_variant = (len(self.samples) + 3) // 4
+        expected = 3 + len(self.variants) * self._bytes_per_variant
+        actual = os.path.getsize(self.bed)
+        if actual < expected:
+            raise ValueError(f"PLINK BED appears truncated: expected at least {expected} bytes, found {actual}")
+        with open(self.bed, "rb") as fh:
+            magic = fh.read(3)
+        if magic != bytes((0x6C, 0x1B, 0x01)):
+            raise ValueError("Unsupported PLINK BED: expected current SNP-major magic bytes 6c 1b 01")
+
+    @staticmethod
+    def _normalize_prefix(prefix: str) -> str:
+        """Accept either a PLINK prefix or one member of a BED/BIM/FAM trio."""
+        value = os.fspath(prefix).strip()
+        lower = value.lower()
+        for suffix in (".bed", ".bim", ".fam"):
+            if lower.endswith(suffix):
+                return value[:-len(suffix)]
+        return value
+
+    def _read_fam(self) -> List[str]:
+        samples: List[str] = []
+        seen = set()
+        with open(self.fam, "rt", encoding="utf-8") as fh:
+            for line_no, raw in enumerate(fh, 1):
+                if not raw.strip():
+                    continue
+                parts = raw.split()
+                if len(parts) < 2:
+                    raise ValueError(f"{self.fam}:{line_no} requires at least FID and IID")
+                iid = parts[1]
+                sid = iid if iid not in seen else f"{parts[0]}:{iid}"
+                if sid in seen:
+                    raise ValueError(f"Duplicate PLINK sample identifier after FID/IID resolution: {sid}")
+                seen.add(sid)
+                samples.append(sid)
+        return samples
+
+    def _read_bim(self) -> List[Tuple[str, str, int, str, str]]:
+        rows: List[Tuple[str, str, int, str, str]] = []
+        with open(self.bim, "rt", encoding="utf-8") as fh:
+            for line_no, raw in enumerate(fh, 1):
+                if not raw.strip():
+                    continue
+                parts = raw.split()
+                if len(parts) < 6:
+                    raise ValueError(f"{self.bim}:{line_no} requires 6 columns")
+                chrom, vid, _cm, pos_s, a1, a2 = parts[:6]
+                try:
+                    pos = int(pos_s)
+                except ValueError as exc:
+                    raise ValueError(f"{self.bim}:{line_no} invalid bp coordinate: {pos_s}") from exc
+                rows.append((chrom, vid, pos, a1, a2))
+        return rows
+
+    def _build_variant_index(self) -> Dict[str, Tuple[List[int], List[int]]]:
+        """Build chromosome -> (sorted positions, BED variant indices)."""
+        by_chrom: Dict[str, List[Tuple[int, int]]] = {}
+        for idx, (chrom, _vid, pos, _a1, _a2) in enumerate(self.variants):
+            by_chrom.setdefault(chrom, []).append((pos, idx))
+
+        index: Dict[str, Tuple[List[int], List[int]]] = {}
+        for chrom, entries in by_chrom.items():
+            entries.sort(key=lambda item: (item[0], item[1]))
+            index[chrom] = ([p for p, _ in entries], [i for _, i in entries])
+        return index
+
+    def _decode_variant(self, variant_index: int, block: bytes) -> VariantCall:
+        chrom, vid, pos, a1, a2 = self.variants[variant_index]
+        genotypes: Dict[str, Tuple[Optional[int], ...]] = {}
+        phased: Dict[str, bool] = {}
+        for i, sample in enumerate(self.samples):
+            code = (block[i // 4] >> ((i % 4) * 2)) & 0b11
+            # PLINK .bed: 00=A1/A1, 01=missing, 10=A1/A2, 11=A2/A2.
+            # EasyHap uses A2 as REF index 0 and A1 as ALT index 1.
+            if code == 0b00:
+                gt = (1, 1)
+            elif code == 0b01:
+                gt = (None, None)
+            elif code == 0b10:
+                gt = (0, 1)
+            else:
+                gt = (0, 0)
+            genotypes[sample] = gt
+            phased[sample] = False
+        info = {"SOURCE": "PLINK1_BED", "PLINK_A1": a1, "PLINK_A2": a2}
+        tokens = encode_alleles(a2, (a1,), info)
+        return VariantCall(chrom, pos, vid or ".", a2, (a1,), tokens, genotypes, phased, info)
+
+    def iter_region(self, region: Region) -> Iterator[VariantCall]:
+        chrom_index = self._variant_index.get(region.chrom)
+        if chrom_index is None:
+            return
+
+        positions, variant_indices = chrom_index
+        left = bisect.bisect_left(positions, region.start)
+        right = bisect.bisect_right(positions, region.end)
+        if left >= right:
+            return
+
+        selected = variant_indices[left:right]
+        with open(self.bed, "rb") as fh:
+            # In standard BIM files, variants for a chromosome are already in
+            # physical/BED order. In that common case this loop performs one
+            # initial seek and then sequential reads. If the BIM is unusually
+            # unsorted, direct seeks still return variants in genomic order.
+            next_file_index: Optional[int] = None
+            for variant_index in selected:
+                if next_file_index != variant_index:
+                    fh.seek(3 + variant_index * self._bytes_per_variant)
+                block = fh.read(self._bytes_per_variant)
+                if len(block) != self._bytes_per_variant:
+                    raise ValueError(
+                        f"Unexpected end of PLINK BED while reading variant index {variant_index}"
+                    )
+                next_file_index = variant_index + 1
+                yield self._decode_variant(variant_index, block)
+

@@ -37,6 +37,7 @@ plt.rcParams.update({
 DEFAULT_REF_COLOR = "#70AD47"
 DEFAULT_ALT_COLOR = "#4472C4"
 DEFAULT_MISSING_COLOR = "#D9D9D9"
+DEFAULT_ABSENCE_COLOR = "#FFFFFF"
 GENE_CDS_COLOR = "black"
 GENE_UTR_COLOR = "#BFBFBF"
 DEFAULT_HAP_PALETTE = [
@@ -176,6 +177,8 @@ def _state_for_token(token: str, ref_token: str) -> int:
     if token in {"", "NA", "N"}:
         return 2
     parts = [x for x in str(token).split("/") if x]
+    if parts and all(x == "ABS" for x in parts):
+        return 3
     return 0 if parts and all(x == ref_token for x in parts) else 1
 
 
@@ -228,6 +231,7 @@ def _draw_heatmap(
     ref_color: str,
     alt_color: str,
     missing_color: str,
+    absence_color: str = DEFAULT_ABSENCE_COLOR,
     title: Optional[str] = None,
     reverse_variants: bool = False,
     show_legend: bool = True,
@@ -238,11 +242,11 @@ def _draw_heatmap(
         ax.axis("off")
         return None
     nrow, ncol = matrix.shape
-    cmap = ListedColormap([ref_color, alt_color, missing_color])
+    cmap = ListedColormap([ref_color, alt_color, missing_color, absence_color])
     # pcolormesh gives every cell an explicit black border. Equal aspect guarantees square cells.
     ax.pcolormesh(
         np.arange(ncol + 1), np.arange(nrow + 1), matrix,
-        cmap=cmap, vmin=-0.5, vmax=2.5, shading="flat",
+        cmap=cmap, vmin=-0.5, vmax=3.5, shading="flat",
         edgecolors="black", linewidth=0.55, antialiased=True,
     )
     ax.set_xlim(0, ncol)
@@ -279,7 +283,8 @@ def _draw_heatmap(
             handles=[
                 Patch(facecolor=ref_color, edgecolor="black", label="REF"),
                 Patch(facecolor=alt_color, edgecolor="black", label="ALT"),
-                Patch(facecolor=missing_color, edgecolor="black", label="Missing"),
+                Patch(facecolor=missing_color, edgecolor="black", label="Missing GT"),
+                Patch(facecolor=absence_color, edgecolor="black", label="Genomic absence"),
             ],
             frameon=False, loc="upper left", bbox_to_anchor=(1.01, 1), borderaxespad=0,
         )
@@ -318,28 +323,83 @@ def _subtract_intervals(base_start: int, base_end: int, covered: Sequence[Tuple[
 def _gene_context(result: HapResult, gff_file: Optional[str]):
     if not gff_file:
         return [], None, "+"
-    features = read_gff_features(gff_file, result.region.chrom, result.region.start, result.region.end)
-    if not features:
+    # First identify the primary gene/transcript that overlaps the requested analysis region.
+    # Then reload the annotation over the COMPLETE selected gene span.  This is important when
+    # the requested region clips one end of a gene: the combined gene+haplotype figure should
+    # still show the full gene model rather than a truncated set of child features.
+    overlap_features = read_gff_features(
+        gff_file, result.region.chrom, result.region.start, result.region.end
+    )
+    if not overlap_features:
         return [], None, "+"
-    gene = _primary_gene(features, result.region.start, result.region.end)
-    strand = gene.strand if gene is not None and gene.strand in {"+", "-"} else "+"
-    return features, gene, strand
-
-
-def _draw_gene_structure(ax, result: HapResult, features: List[GeneFeature], gene: Optional[GeneFeature], strand: str, show_legend: bool = True):
+    gene = _primary_gene(overlap_features, result.region.start, result.region.end)
     if gene is None:
-        ax.hlines(0, result.region.start, result.region.end, color="black", linewidth=1.2, zorder=1)
-        ax.text((result.region.start + result.region.end) / 2, 0.32, result.region.vcf_label, ha="center", va="bottom")
-        ax.set_xlim(result.region.start, result.region.end)
+        return overlap_features, None, "+"
+    features = read_gff_features(gff_file, result.region.chrom, gene.start, gene.end)
+    strand = gene.strand if gene.strand in {"+", "-"} else "+"
+    return features or overlap_features, gene, strand
+
+
+def _gene_plot_window(result: HapResult, gene: Optional[GeneFeature]) -> Tuple[int, int]:
+    """Return the genomic span that should occupy the full gene-model plotting width.
+
+    Rules for a selected gene:
+      * Always include the complete gene, even when the requested analysis region is shorter.
+      * Empty flanking parts of an oversized analysis region do not consume plotting width.
+      * Retained variants outside the gene are preserved.  The plot then extends only as far as
+        the outermost such variant, and the gap between that variant and the gene is rendered as
+        dashed intergenic sequence.
+    """
+    if gene is None:
+        return result.region.start, result.region.end
+    positions = [int(v.pos) for v in result.variants]
+    left = int(gene.start)
+    right = int(gene.end)
+    if positions:
+        left = min(left, min(positions))
+        right = max(right, max(positions))
+    if right <= left:
+        right = left + 1
+    return left, right
+
+
+def _draw_gene_structure(
+    ax,
+    result: HapResult,
+    features: List[GeneFeature],
+    gene: Optional[GeneFeature],
+    strand: str,
+    show_legend: bool = True,
+    plot_window: Optional[Tuple[int, int]] = None,
+):
+    plot_start, plot_end = plot_window or _gene_plot_window(result, gene)
+    if gene is None:
+        ax.hlines(0, plot_start, plot_end, color="black", linewidth=1.2, zorder=1)
+        ax.text((plot_start + plot_end) / 2, 0.32, result.region.vcf_label, ha="center", va="bottom")
+        ax.set_xlim(plot_start, plot_end)
         ax.set_ylim(-0.30, 0.72)
         ax.axis("off")
         return
 
-    a = _orient(gene.start, result.region.start, result.region.end, strand)
-    b = _orient(gene.end, result.region.start, result.region.end, strand)
+    a = _orient(gene.start, plot_start, plot_end, strand)
+    b = _orient(gene.end, plot_start, plot_end, strand)
     left, right = sorted((a, b))
-    # The intron is the black backbone. Exon/UTR patches are drawn without outlines so no black line crosses them.
+
+    # The solid black backbone represents the annotated gene/introns.  If retained variants lie
+    # outside the gene, extend only to those variants and use a black dashed line for the
+    # intergenic segment.  Empty sequence introduced solely by an oversized analysis region is
+    # intentionally omitted, allowing the complete gene to use the full heatmap width.
     ax.hlines(0, left, right, color="black", linewidth=1.6, zorder=1)
+    if plot_start < gene.start:
+        x1 = _orient(plot_start, plot_start, plot_end, strand)
+        x2 = _orient(gene.start, plot_start, plot_end, strand)
+        l, r = sorted((x1, x2))
+        ax.hlines(0, l, r, color="black", linewidth=1.2, linestyle=(0, (4, 3)), zorder=1)
+    if plot_end > gene.end:
+        x1 = _orient(gene.end, plot_start, plot_end, strand)
+        x2 = _orient(plot_end, plot_start, plot_end, strand)
+        l, r = sorted((x1, x2))
+        ax.hlines(0, l, r, color="black", linewidth=1.2, linestyle=(0, (4, 3)), zorder=1)
 
     children = [
         f for f in features
@@ -355,8 +415,8 @@ def _draw_gene_structure(ax, result: HapResult, features: List[GeneFeature], gen
     # previous "grey UTR on top of a blue exon" appearance.
     coding_source = cds if cds else exons
     for f in coding_source:
-        x1 = _orient(f.start, result.region.start, result.region.end, strand)
-        x2 = _orient(f.end, result.region.start, result.region.end, strand)
+        x1 = _orient(f.start, plot_start, plot_end, strand)
+        x2 = _orient(f.end, plot_start, plot_end, strand)
         l, r = sorted((x1, x2))
         ax.add_patch(Rectangle((l, -0.12), max(1, r - l + 1), 0.24, facecolor=GENE_CDS_COLOR, edgecolor="none", linewidth=0, zorder=3))
 
@@ -371,14 +431,14 @@ def _draw_gene_structure(ax, result: HapResult, features: List[GeneFeature], gen
             utr_intervals.extend(_subtract_intervals(ex.start, ex.end, cds_intervals))
 
     for s, e in utr_intervals:
-        x1 = _orient(s, result.region.start, result.region.end, strand)
-        x2 = _orient(e, result.region.start, result.region.end, strand)
+        x1 = _orient(s, plot_start, plot_end, strand)
+        x2 = _orient(e, plot_start, plot_end, strand)
         l, r = sorted((x1, x2))
         ax.add_patch(Rectangle((l, -0.09), max(1, r - l + 1), 0.18, facecolor=GENE_UTR_COLOR, edgecolor="none", linewidth=0, zorder=4))
 
     ax.text(left, 0.36, f"5'  {_feature_name(gene)}", ha="left", va="bottom")
     ax.text(right, 0.36, "3'", ha="right", va="bottom")
-    ax.set_xlim(result.region.start, result.region.end)
+    ax.set_xlim(plot_start, plot_end)
     ax.set_ylim(-0.30, 0.72)
     ax.axis("off")
     if show_legend:
@@ -393,17 +453,30 @@ def _draw_gene_structure(ax, result: HapResult, features: List[GeneFeature], gen
         )
 
 
-def _connect_gene_to_axis(fig, gene_ax, target_ax, result: HapResult, strand: str, target_x: Sequence[float], target_y: float = 0.0):
+def _connect_gene_to_axis(
+    fig,
+    gene_ax,
+    target_ax,
+    result: HapResult,
+    strand: str,
+    target_x: Sequence[float],
+    target_y: float = 0.0,
+    plot_window: Optional[Tuple[int, int]] = None,
+):
     calls = list(reversed(result.variants)) if strand == "-" else list(result.variants)
     if len(calls) != len(target_x):
         return
+    plot_start, plot_end = plot_window or _gene_plot_window(result, None)
     for call, tx in zip(calls, target_x):
-        gx = _orient(call.pos, result.region.start, result.region.end, strand)
-        gene_ax.vlines(gx, -0.18, -0.13, color="black", linewidth=0.7, zorder=5)
+        gx = _orient(call.pos, plot_start, plot_end, strand)
+        # Let the variant guide line pass directly through the gene model.  Drawing this short
+        # vertical segment above the exon/CDS/UTR patches makes the variant-to-heatmap mapping
+        # unambiguous even when the variant lies inside a structural block.
+        gene_ax.vlines(gx, -0.18, 0.18, color="black", linewidth=0.7, zorder=8)
         con = ConnectionPatch(
             xyA=(gx, -0.18), coordsA=gene_ax.transData,
             xyB=(tx, target_y), coordsB=target_ax.transData,
-            color="0.35", linewidth=0.6, alpha=0.8, zorder=0, clip_on=False,
+            color="0.35", linewidth=0.6, alpha=0.8, zorder=7, clip_on=False,
         )
         fig.add_artist(con)
 
@@ -426,6 +499,7 @@ def plot_haplotype_heatmap(
     ref_color=DEFAULT_REF_COLOR,
     alt_color=DEFAULT_ALT_COLOR,
     missing_color=DEFAULT_MISSING_COLOR,
+    absence_color=DEFAULT_ABSENCE_COLOR,
     cell_text: Optional[str] = None,
 ):
     rows, _, _, mat = _allele_matrix(result, plot_hap_level, plot_min_count)
@@ -435,7 +509,7 @@ def plot_haplotype_heatmap(
     # Set final margins before drawing so dynamic cell-text sizing uses the rendered heatmap box.
     fig.subplots_adjust(left=0.18, right=0.82, bottom=0.18, top=0.90)
     _draw_heatmap(
-        ax, result, plot_hap_level, plot_min_count, ref_color, alt_color, missing_color,
+        ax, result, plot_hap_level, plot_min_count, ref_color, alt_color, missing_color, absence_color,
         f"Haplotype heatmap: {result.region.vcf_label}", cell_text=cell_text,
     )
     stem = "HaplotypeHeatmap" if plot_hap_level == "hap" else "ClusterHaplotypeHeatmap"
@@ -451,11 +525,13 @@ def plot_gene_structure_with_haps(
     ref_color=DEFAULT_REF_COLOR,
     alt_color=DEFAULT_ALT_COLOR,
     missing_color=DEFAULT_MISSING_COLOR,
+    absence_color=DEFAULT_ABSENCE_COLOR,
     cell_text: Optional[str] = None,
 ):
     features, gene, strand = _gene_context(result, gff_file)
     if gene is None:
         return
+    plot_window = _gene_plot_window(result, gene)
     rows, _, _, mat = _allele_matrix(result, plot_hap_level, plot_min_count)
     if mat.size == 0:
         return
@@ -464,11 +540,11 @@ def plot_gene_structure_with_haps(
     gs = fig.add_gridspec(2, 1, height_ratios=[0.60, max(2.0, height - 2.65)], hspace=0.015)
     ag = fig.add_subplot(gs[0])
     ah = fig.add_subplot(gs[1])
-    _draw_gene_structure(ag, result, features, gene, strand, show_legend=True)
+    _draw_gene_structure(ag, result, features, gene, strand, show_legend=True, plot_window=plot_window)
     # Set final margins before drawing so dynamic cell-text sizing uses the rendered heatmap box.
     fig.subplots_adjust(left=0.18, right=0.82, bottom=0.12, top=0.95)
     meta = _draw_heatmap(
-        ah, result, plot_hap_level, plot_min_count, ref_color, alt_color, missing_color,
+        ah, result, plot_hap_level, plot_min_count, ref_color, alt_color, missing_color, absence_color,
         None, reverse_variants=(strand == "-"), show_legend=True, cell_text=cell_text,
     )
     # Match the gene axis to the actual rendered heatmap width.
@@ -476,7 +552,10 @@ def plot_gene_structure_with_haps(
     gp = ag.get_position(); hp = ah.get_position()
     ag.set_position([hp.x0, gp.y0, hp.width, gp.height])
     if meta:
-        _connect_gene_to_axis(fig, ag, ah, result, strand, np.arange(meta["ncol"]) + 0.5, target_y=0.0)
+        _connect_gene_to_axis(
+            fig, ag, ah, result, strand, np.arange(meta["ncol"]) + 0.5,
+            target_y=0.0, plot_window=plot_window,
+        )
     ah.set_title(f"Gene structure and haplotypes: {result.region.vcf_label}")
     stem = "GeneHaplotype" if plot_hap_level == "hap" else "GeneClusterHaplotype"
     _save_formats(fig, result.output_prefix + "." + stem, plot_formats)
@@ -522,16 +601,28 @@ def _draw_group_stacked(ax, df: pd.DataFrame, plot_hap_level="hap", plot_min_cou
         color_map = _hap_color_map(prop.columns, hap_palette)
     bottom = np.zeros(len(prop))
     x = np.arange(len(prop))
+    bar_width = 0.6
     for h in prop.columns:
-        ax.bar(x, prop[h].values, bottom=bottom, label=h, color=color_map[h], edgecolor="black", linewidth=0.3)
+        ax.bar(
+            x, prop[h].values, bottom=bottom, width=bar_width, label=h,
+            color=color_map[h], edgecolor="none", linewidth=0,
+        )
         bottom += prop[h].values
+    # Keep internal haplotype segments borderless and draw only one subtle outer outline
+    # around each complete 100% stacked bar.
+    for xi in x:
+        ax.add_patch(Rectangle(
+            (float(xi) - bar_width / 2.0, 0.0), bar_width, 1.0,
+            fill=False, edgecolor="black", linewidth=0.30, zorder=4,
+        ))
     # n reflects only the haplotypes actually displayed after plot_min_count filtering.
     display_n = counts.sum(axis=1).astype(int)
     tick_labels = [f"{g}\nn={int(display_n.loc[g])}" for g in prop.index]
     ax.set_xticks(x, tick_labels, rotation=20 if len(prop) > 3 else 0)
     ax.set_ylim(0, 1)
-    ax.set_ylabel("Haplotype frequency")
-    ax.set_xlabel("Group")
+    ax.set_ylabel("Haplotype frequency", fontsize=14)
+    ax.set_xlabel("Group", fontsize=14)
+    ax.tick_params(axis="both", labelsize=13)
     ax.set_title("Haplotype composition by group")
     if show_legend:
         ax.legend(frameon=False, bbox_to_anchor=(1.02, 1), loc="upper left")
@@ -541,7 +632,10 @@ def plot_group_distribution(result: HapResult, df: pd.DataFrame, plot_formats: S
     counts = _group_count_table(df, plot_hap_level, plot_min_count)
     if counts.empty:
         return
-    fig, ax = plt.subplots(figsize=(max(7, 0.6 * len(counts.columns) + 4), 5.5))
+    # Keep the distribution panel compact; its horizontal dimension is driven by groups,
+    # not by the number of haplotypes in the legend.
+    fig_width = max(5.5, min(9.0, 3.8 + 0.85 * len(counts.index)))
+    fig, ax = plt.subplots(figsize=(fig_width, 5.5))
     _draw_group_stacked(ax, df, plot_hap_level, plot_min_count, show_legend=True, hap_palette=hap_palette)
     _save_formats(fig, result.output_prefix + ".GroupStackedBar", plot_formats)
 
@@ -571,11 +665,18 @@ def _draw_group_pies(fig, container, df: pd.DataFrame, plot_hap_level="hap", plo
             autopct=lambda p: f"{p:.1f}%" if p >= 4 else "",
             startangle=90,
             counterclock=False,
-            wedgeprops={"edgecolor": "white", "linewidth": 0.8},
-            textprops={"fontsize": 8},
+            wedgeprops={"edgecolor": "none", "linewidth": 0},
+            textprops={"fontsize": 11},
         )
-        ax.set_title(str(group), fontsize=10)
-        ax.text(0.5, -0.08, f"n={int(display_n.loc[group])}", transform=ax.transAxes, ha="center", va="top", fontsize=9)
+        # Pie slices have no internal borders; retain only a very thin black outer circle.
+        ax.add_patch(plt.Circle(
+            (0.0, 0.0), 1.0, fill=False, edgecolor="black", linewidth=0.30, zorder=6,
+        ))
+        ax.set_title(str(group), fontsize=13)
+        ax.text(
+            0.5, -0.08, f"n={int(display_n.loc[group])}", transform=ax.transAxes,
+            ha="center", va="top", fontsize=12,
+        )
     for idx in range(n, nrows * ncols):
         ax = fig.add_subplot(sub[idx // ncols, idx % ncols])
         ax.axis("off")
@@ -796,6 +897,7 @@ def plot_ld_heatmap(result: HapResult, plot_formats: Sequence[str], gff_file: Op
     if len(result.variants) < 2:
         return
     features, gene, strand = _gene_context(result, gff_file)
+    plot_window = _gene_plot_window(result, gene)
     mat, calls, labels = _ld_ordered(result, strand)
     n = len(calls)
     width = max(6.5, min(28.0, 3.0 + 0.55 * n))
@@ -809,7 +911,10 @@ def plot_ld_heatmap(result: HapResult, plot_formats: Sequence[str], gff_file: Op
     ald = fig.add_subplot(gs[1, 0])
     cax = fig.add_subplot(gs[1, 1])
     fig.add_subplot(gs[0, 1]).axis("off")
-    _draw_gene_structure(ag, result, features, gene, strand, show_legend=(gene is not None))
+    _draw_gene_structure(
+        ag, result, features, gene, strand, show_legend=(gene is not None),
+        plot_window=plot_window,
+    )
     sm = _draw_ld_triangle(ald, mat, labels, title="LD ($r^2$)", ld_cmap=ld_cmap)
     # Equal-aspect LD drawing can shrink the axis inside its GridSpec cell. Match the gene
     # axis to the final LD plotting box so their left/right edges are exactly aligned.
@@ -817,7 +922,9 @@ def plot_ld_heatmap(result: HapResult, plot_formats: Sequence[str], gff_file: Op
     fig.canvas.draw()
     gp = ag.get_position(); lp = ald.get_position()
     ag.set_position([lp.x0, gp.y0, lp.width, gp.height])
-    _connect_gene_to_axis(fig, ag, ald, result, strand, np.arange(n), target_y=0.0)
+    _connect_gene_to_axis(
+        fig, ag, ald, result, strand, np.arange(n), target_y=0.0, plot_window=plot_window
+    )
     fig.colorbar(sm, cax=cax, label="$r^2$")
     _save_formats(fig, result.output_prefix + ".LD_r2_Heatmap", plot_formats)
 
@@ -836,12 +943,14 @@ def _load_world_lines() -> Dict[str, List[List[List[float]]]]:
 
 def _draw_world_background(ax, lons: Sequence[float], lats: Sequence[float]) -> None:
     data = _load_world_lines()
-    for key, lw, alpha in (("coastlines", 0.65, 0.75), ("countries", 0.35, 0.45)):
-        for seg in data.get(key, []):
-            if len(seg) < 2:
-                continue
-            arr = np.asarray(seg, dtype=float)
-            ax.plot(arr[:, 0], arr[:, 1], color="0.35", linewidth=lw, alpha=alpha, zorder=0)
+    # Draw coastlines only.  Internal country/territorial borders are intentionally omitted so
+    # geographic haplotype plots remain scientifically useful without encoding disputed political
+    # boundaries.
+    for seg in data.get("coastlines", []):
+        if len(seg) < 2:
+            continue
+        arr = np.asarray(seg, dtype=float)
+        ax.plot(arr[:, 0], arr[:, 1], color="0.35", linewidth=0.65, alpha=0.75, zorder=0)
 
     lon_min, lon_max = float(np.min(lons)), float(np.max(lons))
     lat_min, lat_max = float(np.min(lats)), float(np.max(lats))
@@ -854,7 +963,10 @@ def _draw_world_background(ax, lons: Sequence[float], lats: Sequence[float]) -> 
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
     ax.grid(True, linestyle=":", linewidth=0.45, alpha=0.35)
-    ax.set_aspect("auto")
+    # Use an equal data aspect so one longitude unit and one latitude unit
+    # occupy the same physical length. This keeps map pie markers circular
+    # instead of stretching them into ellipses.
+    ax.set_aspect("equal", adjustable="box")
 
 
 def _map_haplotype_table(
@@ -914,10 +1026,13 @@ def _draw_geo_pies(ax, table: pd.DataFrame, classes: Sequence[str], color_map: D
             frac = count / total
             theta2 = start + 360.0 * frac
             ax.add_patch(Wedge((float(lon), float(lat)), radius, start, theta2,
-                               facecolor=color_map[cls], edgecolor="white", linewidth=0.55, zorder=5))
+                               facecolor=color_map[cls], edgecolor="none", linewidth=0, zorder=5))
             start = theta2
+        # Draw one clean black outline around the complete pie. Individual
+        # haplotype sectors have no borders, so only the outer circumference
+        # is outlined.
         ax.add_patch(plt.Circle((float(lon), float(lat)), radius, fill=False,
-                                edgecolor="0.2", linewidth=0.55, zorder=6))
+                                edgecolor="black", linewidth=0.30, zorder=6))
         label = str(loc).strip()
         if show_labels and label and label.lower() != "nan":
             ax.text(float(lon), float(lat) - radius * 1.35, label, ha="center", va="top", fontsize=7, zorder=7)
@@ -942,10 +1057,10 @@ def _draw_geo_bars(ax, table: pd.DataFrame, classes: Sequence[str], color_map: D
                 continue
             h = height * count / total
             ax.add_patch(Rectangle((float(lon) - width / 2.0, bottom), width, h,
-                                   facecolor=color_map[cls], edgecolor="white", linewidth=0.45, zorder=5))
+                                   facecolor=color_map[cls], edgecolor="none", linewidth=0, zorder=5))
             bottom += h
         ax.add_patch(Rectangle((float(lon) - width / 2.0, float(lat) - height / 2.0), width, height,
-                               fill=False, edgecolor="0.2", linewidth=0.55, zorder=6))
+                               fill=False, edgecolor="black", linewidth=0.30, zorder=6))
         label = str(loc).strip()
         if show_labels and label and label.lower() != "nan":
             ax.text(float(lon), float(lat) - height * 0.68, label, ha="center", va="top", fontsize=7, zorder=7)
@@ -1071,9 +1186,10 @@ def plot_haplotype_network(
                 continue
             theta2 = start + 360.0 * count / total
             ax.add_patch(Wedge((x, y), radius, start, theta2, facecolor=group_colors[g],
-                               edgecolor="white", linewidth=0.6, zorder=5))
+                               edgecolor="none", linewidth=0, zorder=5))
             start = theta2
-        ax.add_patch(plt.Circle((x, y), radius, fill=False, edgecolor="black", linewidth=0.8, zorder=6))
+        # Network-node sectors are borderless; only the node perimeter keeps a subtle outline.
+        ax.add_patch(plt.Circle((x, y), radius, fill=False, edgecolor="black", linewidth=0.30, zorder=6))
         vx, vy = x - center_x, y - center_y
         if abs(vx) < 1e-8 and abs(vy) < 1e-8:
             vx, vy = 1.0, 0.0
@@ -1110,6 +1226,7 @@ def make_all_plots(
     ref_color=DEFAULT_REF_COLOR,
     alt_color=DEFAULT_ALT_COLOR,
     missing_color=DEFAULT_MISSING_COLOR,
+    absence_color=DEFAULT_ABSENCE_COLOR,
     make_ld_plot: bool = True,
     make_network_plot: bool = True,
     map_style: str = "auto",
@@ -1120,11 +1237,11 @@ def make_all_plots(
     # Standalone figures.
     plot_haplotype_heatmap(
         result, plot_formats, plot_hap_level, plot_min_count,
-        ref_color, alt_color, missing_color, cell_text=cell_text,
+        ref_color, alt_color, missing_color, absence_color, cell_text=cell_text,
     )
     plot_gene_structure_with_haps(
         result, gff_file, plot_formats, plot_hap_level, plot_min_count,
-        ref_color, alt_color, missing_color, cell_text=cell_text,
+        ref_color, alt_color, missing_color, absence_color, cell_text=cell_text,
     )
     if group_map:
         plot_group_distribution(result, hap_group_df, plot_formats, plot_hap_level, plot_min_count, hap_palette=hap_palette)

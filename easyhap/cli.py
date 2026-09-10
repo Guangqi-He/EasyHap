@@ -28,7 +28,7 @@ def _resolve_palette(args):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="easyhap",
-        description="EasyHap 1.2.0: ploidy-aware regional haplotype analysis, population genetics, trait association and visualization.",
+        description="EasyHap 1.3.0: ploidy-aware regional haplotype analysis, population genetics, trait association and visualization.",
     )
     parser.add_argument("--version", action="version", version=f"EasyHap {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -41,7 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_prepare.add_argument("--vcf-backend", default="auto", choices=["auto", "cyvcf2", "pysam", "plain"])
 
     p = sub.add_parser("analyze", help="Run regional haplotype, population, trait, LD and visualization analyses")
-    p.add_argument("--vcf", required=True, help="Phased VCF/VCF.gz/BCF file")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--vcf", help="VCF/VCF.gz/BCF genotype file; phased heterozygotes are required only in copy mode")
+    src.add_argument("--bfile", help="PLINK 1 binary prefix for PREFIX.bed/.bim/.fam; genotype mode only")
     rg = p.add_mutually_exclusive_group(required=True)
     rg.add_argument("--region", help="Single region, e.g. Chr10:1-500")
     rg.add_argument("--region-file", help="TAB-delimited batch region file: chr start end")
@@ -54,7 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
     optional.add_argument("--gff", help="GFF3/GTF annotation for gene structure visualization and optional variant filtering")
 
     analysis = p.add_argument_group("analysis options")
-    analysis.add_argument("--mode", default="inbred", choices=["inbred", "hybrid"], help="Haplotype reconstruction mode [inbred]")
+    analysis.add_argument(
+        "--mode", default="genotype", choices=["genotype", "copy", "inbred", "hybrid"],
+        help="Analysis mode: genotype=phase-independent multilocus genotype; copy=copy-resolved haplotypes requiring phased heterozygotes. Legacy aliases: inbred, hybrid [genotype]",
+    )
     analysis.add_argument("--hetero-policy", default="slash", choices=["slash", "iupac", "missing"], help="Heterozygous-site encoding used in inbred mode [slash]")
     analysis.add_argument("--min-variants", type=int, default=2, help="Skip regions with fewer variants [2]")
     analysis.add_argument("--cluster-threshold", type=float, default=0.15, help="Sequence-distance threshold for haplotype clustering [0.15]")
@@ -88,7 +93,8 @@ def build_parser() -> argparse.ArgumentParser:
     plots.add_argument("--ld-cmap", default="viridis", help="Matplotlib colormap for the LD heatmap, e.g. viridis, magma, coolwarm [viridis]")
     plots.add_argument("--ref-color", default="#70AD47", help="REF cell color in haplotype heatmaps [#70AD47]")
     plots.add_argument("--alt-color", default="#4472C4", help="ALT cell color in haplotype heatmaps [#4472C4]")
-    plots.add_argument("--missing-color", default="#D9D9D9", help="Missing-data cell color in haplotype heatmaps [#D9D9D9]")
+    plots.add_argument("--missing-color", default="#D9D9D9", help="Missing-genotype cell color in heatmaps [#D9D9D9]")
+    plots.add_argument("--absence-color", default="#FFFFFF", help="Structural/genomic-absence cell color in heatmaps [#FFFFFF]")
     plots.add_argument(
         "--map-style", default="auto", choices=["auto", "pie", "bar", "both", "none"],
         help="Geographic haplotype overlay when sample-group columns 3-4 contain latitude/longitude: auto=pie [auto]",
@@ -105,6 +111,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         outputs = prepare_vcf_tables(args.vcf, args.outdir, args.region, args.region_file, args.vcf_backend)
         print(f"Prepared {len(outputs)} region(s).")
         return 0
+
+    if args.bfile and args.mode in {"copy", "hybrid"}:
+        parser.error("--bfile contains unphased PLINK genotypes and is supported only with --mode genotype/inbred")
 
     if args.min_variants < 1:
         parser.error("--min-variants must be >=1")
@@ -131,39 +140,45 @@ def main(argv: Optional[List[str]] = None) -> int:
         from .plotting import set_cell_text_mode
         set_cell_text_mode(args.cell_text)
 
-    results = run_analysis(
-        vcf_path=args.vcf,
-        group_file=args.group,
-        region=args.region,
-        region_file=args.region_file,
-        outdir=args.outdir,
-        mode=args.mode,
-        hetero_policy=args.hetero_policy,
-        trait_file=args.traits,
-        fisher_group1=fisher_group1,
-        fisher_group2=fisher_group2,
-        fisher_alpha=args.fisher_alpha,
-        fisher_adjust=args.fisher_adjust,
-        cluster_threshold=args.cluster_threshold,
-        vcf_backend=args.vcf_backend,
-        write_processed=not args.no_processed,
-        make_plots=args.plot,
-        gff_file=args.gff,
-        gene_feature=args.gene_feature,
-        plot_formats=_csv_list(args.plot_format) or ["pdf"],
-        traits_to_plot=_csv_list(args.trait_cols),
-        plot_hap_level=args.plot_hap_level,
-        plot_min_count=args.plot_min_count,
-        min_variants=args.min_variants,
-        ref_color=ref_color,
-        alt_color=alt_color,
-        missing_color=missing_color,
-        make_ld=not args.no_ld,
-        make_network=not args.no_network,
-        map_style=args.map_style,
-        hap_palette=_csv_list(args.hap_palette),
-        ld_cmap=args.ld_cmap,
-    )
+    try:
+        results = run_analysis(
+            vcf_path=args.vcf,
+            bfile=args.bfile,
+            group_file=args.group,
+            region=args.region,
+            region_file=args.region_file,
+            outdir=args.outdir,
+            mode=args.mode,
+            hetero_policy=args.hetero_policy,
+            trait_file=args.traits,
+            fisher_group1=fisher_group1,
+            fisher_group2=fisher_group2,
+            fisher_alpha=args.fisher_alpha,
+            fisher_adjust=args.fisher_adjust,
+            cluster_threshold=args.cluster_threshold,
+            vcf_backend=args.vcf_backend,
+            write_processed=not args.no_processed,
+            make_plots=args.plot,
+            gff_file=args.gff,
+            gene_feature=args.gene_feature,
+            plot_formats=_csv_list(args.plot_format) or ["pdf"],
+            traits_to_plot=_csv_list(args.trait_cols),
+            plot_hap_level=args.plot_hap_level,
+            plot_min_count=args.plot_min_count,
+            min_variants=args.min_variants,
+            ref_color=ref_color,
+            alt_color=alt_color,
+            missing_color=missing_color,
+            absence_color=args.absence_color,
+            make_ld=not args.no_ld,
+            make_network=not args.no_network,
+            map_style=args.map_style,
+            hap_palette=_csv_list(args.hap_palette),
+            ld_cmap=args.ld_cmap,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+
     print(f"Finished {len(results)} region(s). See {args.outdir}/EasyHap.log for processed/skipped regions.")
     for r in results:
         print(f"[{r.region.vcf_label}] {r.output_prefix}")

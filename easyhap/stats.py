@@ -45,11 +45,16 @@ def bh_adjust(p_values: Sequence[float]) -> List[float]:
     return adj
 
 
-def hamming_distance(a: Sequence[str], b: Sequence[str], missing: str = "N") -> float:
+def hamming_distance(a: Sequence[str], b: Sequence[str], missing: str = "N", absence: str = "ABS") -> float:
     compared = 0
     diff = 0
     for x, y in zip(a, b):
-        if x == missing or y == missing:
+        # Missing GT and structural absence are non-comparable marker states.
+        # The causal deletion/PAV event itself remains in the sequence and is
+        # counted once, while downstream ABS markers are not repeatedly weighted.
+        x_parts = set(str(x).split("/"))
+        y_parts = set(str(y).split("/"))
+        if missing in x_parts or missing in y_parts or absence in x_parts or absence in y_parts:
             continue
         compared += 1
         if x != y:

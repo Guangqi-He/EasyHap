@@ -4,14 +4,20 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import csv
 import os
+import platform
+from datetime import datetime
 
 import pandas as pd
 
 from .io_utils import ensure_dir, read_group_metadata, read_trait_file, sanitize_filename
 from .stats import bh_adjust, connected_component_clusters, fisher_exact_2x2
-from .vcf_reader import MISSING_ALLELE, Region, VCFReader, VariantCall, read_regions, token_for_gt
+from .vcf_reader import (
+    ABSENCE_ALLELE, MISSING_ALLELE, PlinkBedReader, Region, VCFReader, VariantCall,
+    deletion_allele_indices, deletion_end, read_regions, token_for_gt,
+)
 from .research import write_population_haplotype_statistics, write_trait_association, write_ld_outputs
 from .annotation import filter_calls_by_gene_feature
+from .performance import PerformanceMetrics, PerformanceMonitor
 
 IUPAC = {
     frozenset({"A", "G"}): "R",
@@ -28,6 +34,26 @@ IUPAC = {
 }
 
 STATE_ALPHABET = list("ACGTNRYSWKMBDHV0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+
+class AnalysisResults(list):
+    """List-like analysis result carrying run-level performance metrics.
+
+    This preserves backward compatibility with code that expects a normal list
+    while allowing the GUI/CLI to report the exact analysis-window benchmark.
+    """
+
+    def __init__(self, values=(), performance: Optional[PerformanceMetrics] = None) -> None:
+        super().__init__(values)
+        self.performance = performance
+
+    @property
+    def runtime_s(self) -> Optional[float]:
+        return None if self.performance is None else self.performance.runtime_s
+
+    @property
+    def peak_ram_gb(self) -> Optional[float]:
+        return None if self.performance is None else self.performance.peak_ram_gb
 
 
 @dataclass
@@ -55,7 +81,9 @@ def _consensus_token(tokens: Sequence[str], hetero_policy: str = "slash") -> str
     valid = [t for t in tokens if t != MISSING_ALLELE]
     if not valid:
         return MISSING_ALLELE
-    uniq = list(dict.fromkeys(valid))
+    # Phase-independent genotype states must not depend on the textual GT order:
+    # 0/1 and 1/0 are the same multilocus genotype state.
+    uniq = sorted(set(valid))
     if len(uniq) == 1:
         return uniq[0]
     if hetero_policy == "missing":
@@ -150,6 +178,120 @@ def filter_variants_by_fisher(
     return kept, pd.DataFrame(stats_rows)
 
 
+def _normalize_mode(mode: str) -> str:
+    m = str(mode).strip().lower()
+    if m in {"inbred", "genotype"}:
+        return "genotype"
+    if m in {"hybrid", "copy"}:
+        return "copy"
+    raise ValueError("--mode should be genotype/copy (legacy aliases: inbred/hybrid)")
+
+
+def _is_heterozygous_called(gt: Sequence[Optional[int]]) -> bool:
+    called = [a for a in gt if a is not None and a >= 0]
+    return len(set(called)) > 1
+
+
+def validate_copy_phase(calls: Sequence[VariantCall], samples: Sequence[str]) -> None:
+    """Reject unphased heterozygous GTs before copy-resolved reconstruction."""
+    examples: List[str] = []
+    total = 0
+    for call in calls:
+        for sample in samples:
+            gt = call.genotypes.get(sample, tuple())
+            if _is_heterozygous_called(gt) and not call.phased.get(sample, False):
+                total += 1
+                if len(examples) < 8:
+                    gt_text = "/".join("." if a is None else str(a) for a in gt)
+                    examples.append(f"{sample}@{call.chrom}:{call.pos}={gt_text}")
+    if total:
+        detail = ", ".join(examples)
+        raise ValueError(
+            f"Copy-resolved mode requires phased heterozygous genotypes. Detected {total} unphased "
+            f"heterozygous genotype(s); examples: {detail}. Use --mode genotype for phase-independent "
+            "multilocus genotype analysis, or phase the VCF with a dedicated phasing tool first."
+        )
+
+
+def build_structural_absence_mask(
+    calls: Sequence[VariantCall], samples: Sequence[str], mode: str
+) -> Dict[Tuple[str, int], set]:
+    """Map (sample, downstream-call-index) to chromosome copies absent by deletion.
+
+    A mask is inferred only from an explicit deletion allele and a known deletion interval.
+    Ordinary missing genotypes are never converted to genomic absence. In genotype mode,
+    masking is only inferred when all called chromosome copies carry the deletion; an
+    unphased heterozygous deletion is intentionally not copy-assigned.
+    """
+    resolved = _normalize_mode(mode)
+    mask: Dict[Tuple[str, int], set] = {}
+    for di, dcall in enumerate(calls):
+        del_idx = set(deletion_allele_indices(dcall))
+        if not del_idx:
+            continue
+        end = deletion_end(dcall)
+        if end <= dcall.pos:
+            continue
+        for sample in samples:
+            gt = list(dcall.genotypes.get(sample, tuple()))
+            called = [a for a in gt if a is not None and a >= 0]
+            if not called or not any(a in del_idx for a in called):
+                continue
+            absent_copies: set = set()
+            if resolved == "copy":
+                # Phase is irrelevant for homozygous/all-copy deletions; otherwise copy
+                # assignment is valid only after validate_copy_phase() has succeeded.
+                if all(a in del_idx for a in called):
+                    absent_copies = {i for i, a in enumerate(gt) if a is not None}
+                elif dcall.phased.get(sample, False):
+                    absent_copies = {i for i, a in enumerate(gt) if a in del_idx}
+            else:
+                if all(a in del_idx for a in called):
+                    absent_copies = {i for i in range(max(1, len(gt)))}
+            if not absent_copies:
+                continue
+            for ci, call in enumerate(calls):
+                if ci == di or call.chrom != dcall.chrom:
+                    continue
+                if dcall.pos < call.pos <= end:
+                    mask.setdefault((sample, ci), set()).update(absent_copies)
+    return mask
+
+
+def write_variant_overlap_report(prefix: str, calls: Sequence[VariantCall]) -> str:
+    """Write explicit overlap relationships and the action taken by EasyHap."""
+    path = prefix + ".VariantOverlap.tsv"
+    rows = []
+    block = 0
+    for i, a in enumerate(calls):
+        a_end = max(a.pos + len(a.ref) - 1, deletion_end(a))
+        for j in range(i + 1, len(calls)):
+            b = calls[j]
+            if b.chrom != a.chrom:
+                continue
+            b_end = max(b.pos + len(b.ref) - 1, deletion_end(b))
+            if b.pos > a_end and a.pos > b_end:
+                continue
+            if max(a.pos, b.pos) > min(a_end, b_end):
+                continue
+            block += 1
+            adel = bool(deletion_allele_indices(a)); bdel = bool(deletion_allele_indices(b))
+            if adel and a.pos < b.pos <= deletion_end(a):
+                rel, action = "contained_in_deletion", "structural_absence_mask_when_genotype_supports_deletion"
+            elif bdel and b.pos < a.pos <= deletion_end(b):
+                rel, action = "contained_in_deletion", "structural_absence_mask_when_genotype_supports_deletion"
+            elif a.pos == b.pos:
+                rel, action = "shared_start", "retained_separately"
+            else:
+                rel, action = "overlap_or_nested", "retained_separately_with_report"
+            rows.append((f"OB{block:04d}", a.variant_id, b.variant_id, a.chrom, a.pos, a_end, b.pos, b_end, rel, action))
+    with open(path, "w", encoding="utf-8") as out:
+        out.write("BlockID\tVariant1\tVariant2\tCHROM\tStart1\tEnd1\tStart2\tEnd2\tRelationship\tAction\n")
+        for row in rows:
+            out.write("\t".join(map(str, row)) + "\n")
+    return path
+
+
 def build_haplotypes(
     calls: Sequence[VariantCall],
     samples: Sequence[str],
@@ -165,28 +307,39 @@ def build_haplotypes(
     seq_to_samples: Dict[Tuple[str, ...], List[str]] = {}
     sample_hap_sequences: Dict[str, List[Tuple[str, ...]]] = {}
 
-    if mode == "inbred":
+    resolved_mode = _normalize_mode(mode)
+    if resolved_mode == "copy":
+        validate_copy_phase(calls, samples)
+    absence_mask = build_structural_absence_mask(calls, samples, resolved_mode)
+
+    if resolved_mode == "genotype":
         for sample in samples:
-            seq = tuple(_consensus_token(_gt_tokens(call, sample), hetero_policy) for call in calls)
+            seq_tokens: List[str] = []
+            for ci, call in enumerate(calls):
+                gt_tokens = _gt_tokens(call, sample)
+                masked = absence_mask.get((sample, ci), set())
+                if masked and gt_tokens:
+                    gt_tokens = [ABSENCE_ALLELE if i in masked else tok for i, tok in enumerate(gt_tokens)]
+                seq_tokens.append(_consensus_token(gt_tokens, hetero_policy))
+            seq = tuple(seq_tokens)
             sample_hap_sequences[sample] = [seq]
             seq_to_samples.setdefault(seq, []).append(sample)
-    elif mode == "hybrid":
+    else:
         for sample in samples:
             ploidy = _get_ploidy(calls, sample)
             copy_seqs: List[List[str]] = [[] for _ in range(ploidy)]
-            for call in calls:
+            for ci, call in enumerate(calls):
                 gt = list(call.genotypes.get(sample, tuple()))
                 if len(gt) < ploidy:
                     gt.extend([None] * (ploidy - len(gt)))
+                masked = absence_mask.get((sample, ci), set())
                 for i in range(ploidy):
-                    copy_seqs[i].append(token_for_gt(call.allele_tokens, gt[i]))
+                    tok = ABSENCE_ALLELE if i in masked else token_for_gt(call.allele_tokens, gt[i])
+                    copy_seqs[i].append(tok)
             seqs = [tuple(x) for x in copy_seqs]
             sample_hap_sequences[sample] = seqs
-            # Count accession membership once per unique haplotype sequence.
             for seq in sorted(set(seqs)):
                 seq_to_samples.setdefault(seq, []).append(sample)
-    else:
-        raise ValueError("--mode should be inbred or hybrid")
 
     seq_to_hap: Dict[Tuple[str, ...], str] = {}
     hap_to_samples: Dict[str, List[str]] = {}
@@ -205,7 +358,7 @@ def build_haplotypes(
 
 
 def _hap_class(haps: Sequence[str], mode: str) -> str:
-    if mode == "inbred":
+    if _normalize_mode(mode) == "genotype":
         return haps[0] if haps else "NA"
     # For hybrids, retain one entry for each haplotype copy, but sort for a stable diplotype/multiplotype label.
     return "_".join(sorted(haps)) if haps else "NA"
@@ -213,7 +366,7 @@ def _hap_class(haps: Sequence[str], mode: str) -> str:
 
 def _cluster_class(haps: Sequence[str], hap_clusters: Dict[str, str], mode: str) -> str:
     clusters = [hap_clusters.get(h, "NA") for h in haps]
-    if mode == "inbred":
+    if _normalize_mode(mode) == "genotype":
         return clusters[0] if clusters else "NA"
     return "_".join(sorted(dict.fromkeys(clusters))) if clusters else "NA"
 
@@ -270,15 +423,20 @@ def write_processed_tables(prefix: str, calls: Sequence[VariantCall], samples: S
     variant_path = prefix + ".ProcessedVariants.tsv"
     genotype_path = prefix + ".SampleGenotypeTokens.tsv"
     with open(variant_path, "w", encoding="utf-8") as out:
-        out.write("CHROM\tPOS\tID\tREF\tALT\tAlleleTokens\n")
+        out.write("CHROM\tPOS\tID\tREF\tALT\tAlleleTokens\tSVTYPE\tEND\tSVLEN\tDeletionAlleleIndices\n")
         for c in calls:
-            out.write(f"{c.chrom}\t{c.pos}\t{c.variant_id}\t{c.ref}\t{','.join(c.alts)}\t{','.join(c.allele_tokens)}\n")
+            dins = ",".join(map(str, deletion_allele_indices(c)))
+            out.write(
+                f"{c.chrom}\t{c.pos}\t{c.variant_id}\t{c.ref}\t{','.join(c.alts)}\t{','.join(c.allele_tokens)}\t"
+                f"{c.info.get('SVTYPE','')}\t{c.info.get('END','')}\t{c.info.get('SVLEN','')}\t{dins}\n"
+            )
     with open(genotype_path, "w", encoding="utf-8") as out:
         out.write("CHROM\tPOS\tID\t" + "\t".join(samples) + "\n")
         for c in calls:
             vals = []
             for s in samples:
-                vals.append("/".join(_gt_tokens(c, s)))
+                sep = "|" if c.phased.get(s, False) else "/"
+                vals.append(sep.join(_gt_tokens(c, s)))
             out.write(f"{c.chrom}\t{c.pos}\t{c.variant_id}\t" + "\t".join(vals) + "\n")
     return variant_path, genotype_path
 
@@ -356,7 +514,7 @@ def write_alignment_files(
 
 
 def run_region_analysis(
-    vcf_path: str,
+    vcf_path: Optional[str],
     group_file: Optional[str],
     region: Region,
     outdir: str,
@@ -381,14 +539,21 @@ def run_region_analysis(
     ref_color: str = "#70AD47",
     alt_color: str = "#4472C4",
     missing_color: str = "#D9D9D9",
+    absence_color: str = "#FFFFFF",
     make_ld: bool = True,
     make_network: bool = True,
     map_style: str = "auto",
     hap_palette: Optional[Sequence[str]] = None,
     ld_cmap: Optional[str] = None,
+    bfile: Optional[str] = None,
+    reader_override=None,
 ) -> HapResult:
     ensure_dir(outdir)
-    reader = VCFReader(vcf_path, prefer=vcf_backend)
+    if bool(vcf_path) == bool(bfile):
+        raise ValueError("Provide exactly one genotype source: --vcf or --bfile")
+    if bfile and _normalize_mode(mode) != "genotype":
+        raise ValueError("PLINK BED/BIM/FAM is unphased and is supported only with --mode genotype")
+    reader = reader_override if reader_override is not None else (PlinkBedReader(bfile) if bfile else VCFReader(str(vcf_path), prefer=vcf_backend))
     group_metadata = read_group_metadata(group_file)
     if not group_metadata.empty:
         group_map = dict(zip(group_metadata["Accession"].astype(str), group_metadata["Type"].astype(str)))
@@ -448,6 +613,7 @@ def run_region_analysis(
         fisher_df.to_csv(prefix + ".FisherFilter.tsv", sep="\t", index=False)
     if write_processed:
         write_processed_tables(prefix, calls, samples)
+    write_variant_overlap_report(prefix, calls)
 
     seq_to_hap, hap_to_samples, hap_to_seq, sample_haps = build_haplotypes(calls, samples, mode, hetero_policy)
     cluster_labels = connected_component_clusters([hap_to_seq[h] for h in sorted(hap_to_seq)], threshold=cluster_threshold)
@@ -495,6 +661,7 @@ def run_region_analysis(
             ref_color=ref_color,
             alt_color=alt_color,
             missing_color=missing_color,
+            absence_color=absence_color,
             make_ld_plot=make_ld,
             make_network_plot=make_network,
             map_style=map_style,
@@ -504,46 +671,123 @@ def run_region_analysis(
     return result
 
 
+def _write_performance_record(
+    outdir: str,
+    metrics: PerformanceMetrics,
+    status: str,
+    results: Sequence[HapResult],
+    backend: str,
+) -> str:
+    """Append one machine-readable benchmark row and return its path."""
+    path = os.path.join(outdir, "EasyHap.performance.tsv")
+    fields = [
+        "Timestamp", "OS", "Backend", "Status", "Samples",
+        "Completed_regions", "Retained_variants", "Runtime_s", "Peak_RAM_GB",
+    ]
+    samples = max((len(r.sample_class) for r in results), default=0)
+    retained = ",".join(str(len(r.variants)) for r in results) if results else "NA"
+    row = {
+        "Timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "OS": f"{platform.system()} {platform.release()}",
+        "Backend": backend,
+        "Status": status,
+        "Samples": samples if samples else "NA",
+        "Completed_regions": len(results),
+        "Retained_variants": retained,
+        "Runtime_s": f"{metrics.runtime_s:.6f}",
+        "Peak_RAM_GB": f"{metrics.peak_ram_gb:.6f}",
+    }
+    write_header = not os.path.exists(path) or os.path.getsize(path) == 0
+    with open(path, "a", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields, delimiter="\t")
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+    return path
+
+
 def run_analysis(
-    vcf_path: str,
+    vcf_path: Optional[str] = None,
     group_file: Optional[str] = None,
     outdir: str = "EasyHap_results",
     region: Optional[str] = None,
     region_file: Optional[str] = None,
     min_variants: int = 2,
     **kwargs,
-) -> List[HapResult]:
-    """Run one or more regions, skipping unsuitable regions instead of aborting the batch."""
-    ensure_dir(outdir)
-    regions = read_regions(region, region_file)
-    log_path = os.path.join(outdir, "EasyHap.log")
+) -> AnalysisResults:
+    """Run one or more regions and record cross-platform performance.
+
+    Runtime is wall-clock time measured strictly inside the analysis call, so
+    GUI parameter-entry time is excluded. Peak RAM is the maximum simultaneous resident memory/working set of the
+    EasyHap process tree observed during the same analysis window.
+    """
+    monitor = PerformanceMonitor(sample_interval_s=0.01).start()
     results: List[HapResult] = []
-    with open(log_path, "a", encoding="utf-8") as log:
-        for reg in regions:
-            log.write(f"[INFO] Processing {reg.vcf_label}\n")
-            log.flush()
-            try:
-                res = run_region_analysis(
-                    vcf_path, group_file, reg, outdir,
-                    min_variants=min_variants, **kwargs
-                )
-                results.append(res)
-                log.write(f"[INFO] Completed {reg.vcf_label}; variants={len(res.variants)}; haplotypes={len(res.hap_sequences)}\n")
-            except ValueError as exc:
-                msg = str(exc)
-                if "variants" in msg.lower() or "filter" in msg.lower() or "--gene-feature" in msg.lower():
-                    log.write(f"[WARNING] Skipped {reg.vcf_label}: {msg}\n")
-                    print(f"[EasyHap] SKIP {reg.vcf_label}: {msg}")
-                    continue
-                log.write(f"[ERROR] {reg.vcf_label}: {msg}\n")
-                raise
-            except Exception as exc:
-                # A malformed single region should be visible in the log; unexpected errors remain fatal.
-                log.write(f"[ERROR] {reg.vcf_label}: {type(exc).__name__}: {exc}\n")
-                raise
-            finally:
+    status = "ERROR"
+    log_path = os.path.join(outdir, "EasyHap.log")
+
+    try:
+        ensure_dir(outdir)
+        regions = read_regions(region, region_file)
+        # PLINK BIM/FAM parsing and the coordinate index can be expensive for very
+        # large datasets. Build the PLINK reader once per batch and reuse it across
+        # regions; each region then performs only indexed BED seeks.
+        shared_reader = None
+        bfile = kwargs.get("bfile")
+        if bool(vcf_path) == bool(bfile):
+            raise ValueError("Provide exactly one genotype source: --vcf or --bfile")
+        if bfile:
+            mode = kwargs.get("mode", "genotype")
+            if _normalize_mode(mode) != "genotype":
+                raise ValueError("PLINK BED/BIM/FAM is unphased and is supported only with --mode genotype")
+            shared_reader = PlinkBedReader(bfile)
+
+        with open(log_path, "a", encoding="utf-8") as log:
+            for reg in regions:
+                log.write(f"[INFO] Processing {reg.vcf_label}\n")
                 log.flush()
-    return results
+                try:
+                    res = run_region_analysis(
+                        vcf_path, group_file, reg, outdir,
+                        min_variants=min_variants, reader_override=shared_reader, **kwargs
+                    )
+                    results.append(res)
+                    log.write(f"[INFO] Completed {reg.vcf_label}; variants={len(res.variants)}; haplotypes={len(res.hap_sequences)}\n")
+                except ValueError as exc:
+                    msg = str(exc)
+                    if "variants" in msg.lower() or "filter" in msg.lower() or "--gene-feature" in msg.lower():
+                        log.write(f"[WARNING] Skipped {reg.vcf_label}: {msg}\n")
+                        print(f"[EasyHap] SKIP {reg.vcf_label}: {msg}")
+                        continue
+                    log.write(f"[ERROR] {reg.vcf_label}: {msg}\n")
+                    raise
+                except Exception as exc:
+                    # A malformed single region should be visible in the log; unexpected errors remain fatal.
+                    log.write(f"[ERROR] {reg.vcf_label}: {type(exc).__name__}: {exc}\n")
+                    raise
+                finally:
+                    log.flush()
+        status = "OK"
+    finally:
+        metrics = monitor.stop()
+        backend = "plink-bed" if kwargs.get("bfile") else str(kwargs.get("vcf_backend", "auto"))
+        perf_path = None
+        try:
+            ensure_dir(outdir)
+            perf_path = _write_performance_record(outdir, metrics, status, results, backend)
+            with open(log_path, "a", encoding="utf-8") as log:
+                log.write(
+                    f"[PERFORMANCE] Status={status}; Runtime_s={metrics.runtime_s:.6f}; "
+                    f"Peak_RAM_GB={metrics.peak_ram_gb:.6f}\n"
+                )
+        except Exception as perf_exc:
+            print(f"[EasyHap] WARNING: could not write performance record: {perf_exc}")
+        print(f"[EasyHap] Runtime_s={metrics.runtime_s:.6f}")
+        print(f"[EasyHap] Peak_RAM_GB={metrics.peak_ram_gb:.6f}")
+        if perf_path:
+            print(f"[EasyHap] Performance_record={perf_path}")
+
+    return AnalysisResults(results, performance=metrics)
 
 
 def prepare_vcf_tables(

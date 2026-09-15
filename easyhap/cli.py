@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_prepare.add_argument("--region", help="Single region, e.g. Chr10:1-500")
     p_prepare.add_argument("--region-file", help="TAB-delimited file: chr start end")
     p_prepare.add_argument("--outdir", default="EasyHap_prepare", help="Output directory [EasyHap_prepare]")
-    p_prepare.add_argument("--vcf-backend", default="auto", choices=["auto", "cyvcf2", "pysam", "plain"])
+    p_prepare.add_argument("--vcf-backend", default="auto", choices=["auto", "bcftools", "cyvcf2", "pysam", "plain"])
 
     p = sub.add_parser("analyze", help="Run regional haplotype, population, trait, LD and visualization analyses")
     src = p.add_mutually_exclusive_group(required=True)

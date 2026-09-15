@@ -6,6 +6,10 @@ import bisect
 import gzip
 import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 
 MISSING_ALLELE = "N"
 ABSENCE_ALLELE = "ABS"
@@ -202,84 +206,315 @@ def token_for_gt(allele_tokens: Sequence[str], allele_index: Optional[int]) -> s
 
 
 class VCFReader:
-    """Small wrapper around cyvcf2/pysam with a plain-text fallback.
+    """VCF/BCF reader with platform-aware backend selection.
 
-    Indexed VCF/BCF random access is used when cyvcf2 or pysam is installed and
-    the input has a tabix/CSI index. The fallback parser is slower but keeps the
-    tool usable for small examples and Windows GUI use.
+    Backend policy
+    --------------
+    * Windows + BGZF-compressed VCF/BCF: prefer bundled/system bcftools.
+      Missing regional indexes are created automatically with ``bcftools index -c``.
+    * Windows + small uncompressed VCF (<= 100 MiB by default): use the plain
+      parser to avoid unnecessary preprocessing.
+    * Windows + large uncompressed VCF: fail fast with an actionable message
+      instead of silently scanning a multi-GB file for every region.
+    * Non-Windows ``auto`` mode preserves the original cyvcf2 -> pysam -> plain
+      selection logic.
+
+    The explicit ``prefer`` values are: ``auto``, ``bcftools``, ``cyvcf2``,
+    ``pysam``, and ``plain``.
     """
 
+    WINDOWS_PLAIN_MAX_BYTES = 100 * 1024 * 1024  # 100 MiB
+
     def __init__(self, path: str, prefer: str = "auto") -> None:
-        self.path = path
-        self.prefer = prefer
+        self.path = os.fspath(path)
+        self.prefer = (prefer or "auto").lower()
+        if self.prefer not in {"auto", "bcftools", "cyvcf2", "pysam", "plain"}:
+            raise ValueError(
+                f"Unsupported VCF backend {prefer!r}; expected auto, bcftools, cyvcf2, pysam, or plain"
+            )
+        if not os.path.isfile(self.path):
+            raise FileNotFoundError(f"VCF/BCF file not found: {self.path}")
+
         self.backend = "plain"
+        self.backend_detail = ""
         self._vcf = None
+        self._bcftools: Optional[str] = None
         self.samples: List[str] = []
+        self.index_created = False
+        self.index_path: Optional[str] = self._existing_region_index()
         self._init_backend()
 
+    @staticmethod
+    def _is_windows() -> bool:
+        return os.name == "nt" or sys.platform.startswith("win")
+
+    def _file_size(self) -> int:
+        try:
+            return os.path.getsize(self.path)
+        except OSError:
+            return 0
+
+    def _existing_region_index(self) -> Optional[str]:
+        """Return the first adjacent tabix/CSI index, if present."""
+        for candidate in (self.path + ".csi", self.path + ".tbi"):
+            if os.path.isfile(candidate):
+                return candidate
+        return None
+
     def _has_region_index(self) -> bool:
-        """Return True when a tabix/CSI index usable for regional access exists."""
-        candidates = [
-            self.path + ".tbi",
-            self.path + ".csi",
-        ]
-        # Some workflows keep the CSI beside the stem (e.g. sample.bcf.csi is
-        # already covered above); keep this helper intentionally conservative.
-        return any(os.path.exists(x) for x in candidates)
+        self.index_path = self._existing_region_index()
+        return self.index_path is not None
 
     def _is_binary_bcf(self) -> bool:
         return self.path.lower().endswith(".bcf")
 
-    def _is_text_vcf(self) -> bool:
+    def _is_gzip_file(self) -> bool:
+        """Detect gzip/BGZF by magic bytes, not only by file extension."""
+        if self._is_binary_bcf():
+            return False
+        try:
+            with open(self.path, "rb") as fh:
+                return fh.read(2) == b"\x1f\x8b"
+        except OSError:
+            return False
+
+    def _is_compressed_text_vcf(self) -> bool:
         lower = self.path.lower()
-        return lower.endswith(".vcf") or lower.endswith(".vcf.gz") or lower.endswith(".vcf.bgz") or lower.endswith(".vcf.bgzip")
+        return (
+            lower.endswith((".vcf.gz", ".vcf.bgz", ".vcf.bgzip"))
+            or self._is_gzip_file()
+        )
+
+    def _is_uncompressed_text_vcf(self) -> bool:
+        lower = self.path.lower()
+        return lower.endswith(".vcf") and not self._is_gzip_file()
+
+    def _is_text_vcf(self) -> bool:
+        return self._is_uncompressed_text_vcf() or self._is_compressed_text_vcf()
+
+    @staticmethod
+    def _candidate_bcftools_names() -> Tuple[str, ...]:
+        return ("bcftools.exe", "bcftools") if os.name == "nt" else ("bcftools", "bcftools.exe")
+
+    def _find_bcftools(self) -> Optional[str]:
+        """Locate bcftools in an EasyHap/PyInstaller bundle or on PATH."""
+        env_path = os.environ.get("EASYHAP_BCFTOOLS")
+        if env_path and os.path.isfile(env_path):
+            return os.path.abspath(env_path)
+
+        roots: List[str] = []
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            roots.append(os.fspath(meipass))
+        if getattr(sys, "executable", None):
+            roots.append(os.path.dirname(os.path.abspath(sys.executable)))
+        roots.append(os.path.dirname(os.path.abspath(__file__)))
+
+        rel_dirs = ("", "bin", "tools", "bcftools", os.path.join("vendor", "bcftools"))
+        seen = set()
+        for root in roots:
+            for rel in rel_dirs:
+                for name in self._candidate_bcftools_names():
+                    candidate = os.path.abspath(os.path.join(root, rel, name))
+                    if candidate in seen:
+                        continue
+                    seen.add(candidate)
+                    if os.path.isfile(candidate):
+                        return candidate
+
+        for name in self._candidate_bcftools_names():
+            found = shutil.which(name)
+            if found:
+                return os.path.abspath(found)
+        return None
+
+    @staticmethod
+    def _subprocess_creationflags() -> int:
+        # Avoid flashing a console window when the GUI invokes bundled bcftools.
+        return int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
+
+    def _run_bcftools(self, args: Sequence[str], *, context: str) -> subprocess.CompletedProcess:
+        assert self._bcftools is not None
+        cmd = [self._bcftools, *map(str, args)]
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=self._subprocess_creationflags(),
+        )
+        if proc.returncode != 0:
+            stderr = (proc.stderr or "").strip()
+            raise RuntimeError(
+                f"bcftools failed while {context} (exit code {proc.returncode}).\n"
+                f"Command: {' '.join(cmd)}\n"
+                f"{stderr or 'No error message was returned by bcftools.'}"
+            )
+        return proc
+
+    def _ensure_bcftools_index(self) -> None:
+        """Create a CSI index for BGZF VCF/BCF when no adjacent index exists."""
+        if self._has_region_index():
+            return
+        if self._is_uncompressed_text_vcf():
+            raise RuntimeError(
+                f"Regional random access requires a BGZF-compressed VCF or BCF, but {self.path!r} is uncompressed. "
+                "Compress it with bgzip and then index it, or use --vcf-backend plain for a small file."
+            )
+
+        try:
+            self._run_bcftools(["index", "-f", "-c", self.path], context=f"indexing {self.path!r}")
+        except RuntimeError as exc:
+            text = str(exc)
+            if self._is_compressed_text_vcf():
+                text += (
+                    "\nEasyHap detected a compressed VCF but bcftools could not index it. "
+                    "A common cause is ordinary gzip compression rather than BGZF. "
+                    "Re-compress the VCF with bgzip and try again."
+                )
+            raise RuntimeError(text) from exc
+
+        self.index_path = self._existing_region_index()
+        if self.index_path is None:
+            raise RuntimeError(
+                f"bcftools index completed but no .csi/.tbi index was found beside {self.path!r}."
+            )
+        self.index_created = True
+
+    def _read_samples_bcftools(self) -> List[str]:
+        proc = self._run_bcftools(["query", "-l", self.path], context=f"reading samples from {self.path!r}")
+        return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+    def _init_bcftools(self, *, create_index: bool = True) -> bool:
+        self._bcftools = self._find_bcftools()
+        if not self._bcftools:
+            return False
+        if create_index and (self._is_compressed_text_vcf() or self._is_binary_bcf()):
+            self._ensure_bcftools_index()
+        self.samples = self._read_samples_bcftools()
+        self.backend = "bcftools"
+        index_note = self.index_path or "none"
+        created_note = " (created by EasyHap)" if self.index_created else ""
+        self.backend_detail = f"bcftools={self._bcftools}; index={index_note}{created_note}"
+        return True
+
+    def _try_cyvcf2(self) -> bool:
+        try:
+            from cyvcf2 import VCF  # type: ignore
+
+            self._vcf = VCF(self.path)
+            self.samples = list(self._vcf.samples)
+            self.backend = "cyvcf2"
+            self.backend_detail = "cyvcf2"
+            return True
+        except Exception:
+            self._vcf = None
+            return False
+
+    def _try_pysam(self) -> bool:
+        try:
+            import pysam  # type: ignore
+
+            self._vcf = pysam.VariantFile(self.path)
+            self.samples = list(self._vcf.header.samples)
+            self.backend = "pysam"
+            self.backend_detail = "pysam"
+            return True
+        except Exception:
+            self._vcf = None
+            return False
 
     def _init_backend(self) -> None:
-        # Auto mode deliberately keeps unindexed textual VCF files on the
-        # sequential plain-text parser.  cyvcf2/pysam regional queries are
-        # index based and can otherwise raise lazily during iteration.
-        if self.prefer == "auto" and self._is_text_vcf() and not self._has_region_index():
+        # Explicit choices always take precedence over automatic platform policy.
+        if self.prefer == "plain":
+            if self._is_binary_bcf():
+                raise RuntimeError("BCF is binary and cannot be read by the plain-text backend.")
             self.samples = self._read_samples_plain()
             self.backend = "plain"
+            self.backend_detail = "plain (explicit)"
             return
 
-        if self.prefer in {"auto", "cyvcf2"}:
-            try:
-                from cyvcf2 import VCF  # type: ignore
+        if self.prefer == "bcftools":
+            if not self._init_bcftools(create_index=True):
+                raise RuntimeError(
+                    "The bcftools backend was requested but bcftools could not be found. "
+                    "For the Windows EXE, bundle bcftools.exe with EasyHap; for source installs, add bcftools to PATH "
+                    "or set EASYHAP_BCFTOOLS to its full path."
+                )
+            return
 
-                self._vcf = VCF(self.path)
-                self.samples = list(self._vcf.samples)
-                self.backend = "cyvcf2"
-                return
-            except Exception:
-                if self.prefer == "cyvcf2":
-                    raise
-        if self.prefer in {"auto", "pysam"}:
-            try:
-                import pysam  # type: ignore
+        if self.prefer == "cyvcf2":
+            if not self._try_cyvcf2():
+                raise RuntimeError(f"Unable to open {self.path!r} with cyvcf2")
+            return
 
-                self._vcf = pysam.VariantFile(self.path)
-                self.samples = list(self._vcf.header.samples)
-                self.backend = "pysam"
-                return
-            except Exception:
-                if self.prefer == "pysam":
-                    raise
+        if self.prefer == "pysam":
+            if not self._try_pysam():
+                raise RuntimeError(f"Unable to open {self.path!r} with pysam")
+            return
 
-        # Binary BCF cannot be parsed by the text fallback.  Give a useful
-        # error instead of trying to decode binary bytes as VCF text.
+        # Windows auto policy: compressed VCF/BCF should use indexed bcftools
+        # access. This avoids the very expensive plain scan of a multi-GB VCF.
+        if self._is_windows():
+            if self._is_compressed_text_vcf() or self._is_binary_bcf():
+                if self._init_bcftools(create_index=True):
+                    return
+
+                # Source/debug installations may not bundle bcftools. If a valid
+                # index already exists, cyvcf2/pysam are still safe random-access
+                # fallbacks. Never silently plain-scan a large compressed file.
+                if self._has_region_index():
+                    if self._try_cyvcf2() or self._try_pysam():
+                        return
+
+                raise RuntimeError(
+                    "EasyHap is running on Windows with a compressed VCF/BCF, but bcftools could not be found and "
+                    "no indexed cyvcf2/pysam backend could be opened. Refusing to sequentially scan a large file. "
+                    "Bundle bcftools.exe with the EasyHap executable, add bcftools to PATH, or set EASYHAP_BCFTOOLS."
+                )
+
+            if self._is_uncompressed_text_vcf():
+                if self._file_size() <= self.WINDOWS_PLAIN_MAX_BYTES:
+                    self.samples = self._read_samples_plain()
+                    self.backend = "plain"
+                    self.backend_detail = (
+                        f"plain (Windows uncompressed VCF <= {self.WINDOWS_PLAIN_MAX_BYTES // (1024 * 1024)} MiB)"
+                    )
+                    return
+                raise RuntimeError(
+                    f"The uncompressed VCF is {self._file_size() / (1024 * 1024):.1f} MiB, larger than EasyHap's "
+                    f"{self.WINDOWS_PLAIN_MAX_BYTES // (1024 * 1024)} MiB plain-reader threshold on Windows. "
+                    "To avoid repeatedly scanning a large VCF, bgzip-compress it to .vcf.gz and rerun EasyHap; "
+                    "EasyHap will create a CSI index automatically and use bcftools regional access."
+                )
+
+        # Non-Windows auto behavior: preserve the original implementation.
+        # Unindexed textual VCF remains usable through the sequential parser.
+        if self._is_text_vcf() and not self._has_region_index():
+            self.samples = self._read_samples_plain()
+            self.backend = "plain"
+            self.backend_detail = "plain (unindexed text VCF)"
+            return
+
+        if self._try_cyvcf2():
+            return
+        if self._try_pysam():
+            return
+
         if self._is_binary_bcf():
             raise RuntimeError(
-                f"Unable to open BCF file {self.path!r}. Install/repair cyvcf2 or pysam. "
+                f"Unable to open BCF file {self.path!r}. Install/repair cyvcf2 or pysam, or use the bcftools backend. "
                 "For fast regional access, create a CSI index."
             )
 
         self.samples = self._read_samples_plain()
         self.backend = "plain"
+        self.backend_detail = "plain (fallback)"
 
     def _open_text(self):
-        lower = self.path.lower()
-        compressed = lower.endswith(".gz") or lower.endswith(".bgz") or lower.endswith(".bgzip")
+        compressed = self._is_compressed_text_vcf()
         return gzip.open(self.path, "rt") if compressed else open(self.path, "rt")
 
     def _read_samples_plain(self) -> List[str]:
@@ -291,17 +526,95 @@ class VCFReader:
         raise ValueError(f"No #CHROM header line found in {self.path}")
 
     def iter_region(self, region: Region) -> Iterator[VariantCall]:
-        if self.backend == "cyvcf2":
+        if self.backend == "bcftools":
+            yield from self._iter_bcftools(region)
+        elif self.backend == "cyvcf2":
             yield from self._iter_cyvcf2(region)
         elif self.backend == "pysam":
             yield from self._iter_pysam(region)
         else:
             yield from self._iter_plain(region)
 
+    def _parse_vcf_record_line(self, line: str) -> Optional[VariantCall]:
+        """Parse one data line in VCF text format into EasyHap's VariantCall."""
+        if not line or line.startswith("#"):
+            return None
+        parts = line.rstrip("\n\r").split("\t")
+        if len(parts) < 8:
+            return None
+        chrom, pos_s, vid, ref, alt_s, _qual, _filt, info_s = parts[:8]
+        try:
+            pos = int(pos_s)
+        except ValueError:
+            return None
+        fmt = parts[8].split(":") if len(parts) > 8 else []
+        gt_idx = fmt.index("GT") if "GT" in fmt else None
+        info = _parse_info(info_s)
+        alts = tuple([] if alt_s == "." else alt_s.split(","))
+        tokens = encode_alleles(ref, alts, info)
+        genotypes: Dict[str, Tuple[Optional[int], ...]] = {}
+        phased: Dict[str, bool] = {}
+        for sample, sample_field in zip(self.samples, parts[9:]):
+            gt_text = "."
+            if gt_idx is not None:
+                fields = sample_field.split(":")
+                if gt_idx < len(fields):
+                    gt_text = fields[gt_idx]
+            sep = "|" if "|" in gt_text else "/"
+            phased[sample] = sep == "|"
+            alleles: List[Optional[int]] = []
+            for a in re.split(r"[|/]", gt_text):
+                if a in {".", ""}:
+                    alleles.append(None)
+                else:
+                    try:
+                        alleles.append(int(a))
+                    except ValueError:
+                        alleles.append(None)
+            genotypes[sample] = tuple(alleles)
+        return VariantCall(chrom, pos, vid, ref, alts, tokens, genotypes, phased, info)
+
+    def _iter_bcftools(self, region: Region) -> Iterator[VariantCall]:
+        assert self._bcftools is not None
+        if not self._has_region_index():
+            # This should normally have been handled during initialization, but
+            # re-check in case files were moved/replaced after reader creation.
+            self._ensure_bcftools_index()
+
+        cmd = [self._bcftools, "view", "-H", "-r", region.vcf_label, self.path]
+        # stderr goes to a temporary file so a verbose bcftools process can
+        # never deadlock while stdout is streamed record-by-record.
+        with tempfile.TemporaryFile(mode="w+b") as err_fh:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=err_fh,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=self._subprocess_creationflags(),
+            )
+            assert proc.stdout is not None
+            try:
+                for line in proc.stdout:
+                    call = self._parse_vcf_record_line(line)
+                    if call is not None:
+                        yield call
+            finally:
+                proc.stdout.close()
+            returncode = proc.wait()
+            if returncode != 0:
+                err_fh.seek(0)
+                stderr = err_fh.read().decode("utf-8", errors="replace").strip()
+                raise RuntimeError(
+                    f"bcftools failed while reading region {region.vcf_label!r} from {self.path!r} "
+                    f"(exit code {returncode}).\n{stderr or 'No error message was returned by bcftools.'}"
+                )
+
     def _iter_cyvcf2(self, region: Region) -> Iterator[VariantCall]:
         assert self._vcf is not None
 
-        # Indexed inputs use true random access.  For an explicitly selected
+        # Indexed inputs use true random access. For an explicitly selected
         # cyvcf2 backend on an unindexed input, reopen the file and scan it
         # sequentially for every region so batch analyses remain correct.
         if self._has_region_index():
@@ -357,43 +670,15 @@ class VCFReader:
 
     def _iter_plain(self, region: Region) -> Iterator[VariantCall]:
         with self._open_text() as fh:
-            samples = self.samples
             for line in fh:
                 if not line or line.startswith("#"):
                     continue
-                parts = line.rstrip("\n").split("\t")
-                if len(parts) < 8:
+                call = self._parse_vcf_record_line(line)
+                if call is None:
                     continue
-                chrom, pos_s, vid, ref, alt_s, _qual, _filt, info_s = parts[:8]
-                pos = int(pos_s)
-                if chrom != region.chrom or pos < region.start or pos > region.end:
+                if call.chrom != region.chrom or call.pos < region.start or call.pos > region.end:
                     continue
-                fmt = parts[8].split(":") if len(parts) > 8 else []
-                gt_idx = fmt.index("GT") if "GT" in fmt else None
-                info = _parse_info(info_s)
-                alts = tuple([] if alt_s == "." else alt_s.split(","))
-                tokens = encode_alleles(ref, alts, info)
-                genotypes: Dict[str, Tuple[Optional[int], ...]] = {}
-                phased: Dict[str, bool] = {}
-                for sample, sample_field in zip(samples, parts[9:]):
-                    gt_text = "."
-                    if gt_idx is not None:
-                        fields = sample_field.split(":")
-                        if gt_idx < len(fields):
-                            gt_text = fields[gt_idx]
-                    sep = "|" if "|" in gt_text else "/"
-                    phased[sample] = sep == "|"
-                    alleles: List[Optional[int]] = []
-                    for a in re.split(r"[|/]", gt_text):
-                        if a in {".", ""}:
-                            alleles.append(None)
-                        else:
-                            try:
-                                alleles.append(int(a))
-                            except ValueError:
-                                alleles.append(None)
-                    genotypes[sample] = tuple(alleles)
-                yield VariantCall(chrom, pos, vid, ref, alts, tokens, genotypes, phased, info)
+                yield call
 
 
 class PlinkBedReader:

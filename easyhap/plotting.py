@@ -10,7 +10,7 @@ import matplotlib
 matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 from matplotlib.cm import ScalarMappable
-from matplotlib.colors import ListedColormap, Normalize, to_rgba
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, to_rgba
 from matplotlib.lines import Line2D
 from matplotlib.patches import ConnectionPatch, Patch, Polygon, Rectangle, Wedge
 import numpy as np
@@ -21,6 +21,9 @@ from .core import HapResult
 from .stats import bh_adjust
 
 # Publication-oriented defaults.
+# Use a generic sans-serif family with Arial preferred when available and
+# DejaVu Sans as a Linux-safe fallback. This avoids repeated
+# "findfont: Font family 'Arial' not found" warnings on systems without Arial.
 plt.rcParams.update({
     "font.family": "sans-serif",
     "font.sans-serif": ["Arial", "DejaVu Sans"],
@@ -44,7 +47,7 @@ DEFAULT_HAP_PALETTE = [
     "#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F",
     "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC",
 ]
-DEFAULT_LD_CMAP = "viridis"
+DEFAULT_LD_CMAP = "white_yellow_red"  # LDblockShow-like: low r² = white, intermediate = yellow, high = red
 
 DEFAULT_CELL_TEXT_MODE = "auto"
 _CELL_TEXT_MODE = DEFAULT_CELL_TEXT_MODE
@@ -253,7 +256,8 @@ def _draw_heatmap(
     ax.set_ylim(nrow, 0)
     ax.set_aspect("equal", adjustable="box")
     ax.set_xticks(np.arange(ncol) + 0.5, [str(v.pos) for v in calls], rotation=90)
-    ax.set_yticks(np.arange(nrow) + 0.5, [f"{r} ({counts[r]})" for r in rows])
+    # Show only the haplotype/cluster name on the left; counts are displayed in a dedicated right-hand column.
+    ax.set_yticks(np.arange(nrow) + 0.5, [str(r) for r in rows])
     ax.set_xlabel("Variant position")
     ax.set_ylabel("Haplotype / cluster")
     if title:
@@ -278,6 +282,56 @@ def _draw_heatmap(
                     j + 0.5, i + 0.5, tok,
                     ha="center", va="center", fontsize=fontsize, clip_on=True,
                 )
+
+    # Add a count column immediately to the right of the variant heatmap without changing
+    # the heatmap x-limits. This preserves square variant cells and keeps the gene-model axis
+    # aligned exactly with the variant matrix rather than with the extra count column.
+    #
+    # Size the count column from the ACTUAL rendered width of the widest count label. Thus a
+    # one-digit maximum produces a narrow column, whereas 3-, 4-, or 5-digit counts expand the
+    # column only as much as their text requires. The conversion from pixels to x-data units
+    # makes the width track the physical heatmap-cell width at any figure size.
+    count_fontsize = min(10.5, max(6.0, base_fontsize if base_fontsize > 0 else 9.0))
+    renderer = ax.figure.canvas.get_renderer()
+    count_labels = [str(int(counts[r])) for r in rows]
+    measure_labels = count_labels + ["n"]
+    max_text_width_px = 0.0
+    for label in measure_labels:
+        probe = ax.text(
+            0, 0, label, fontsize=count_fontsize,
+            ha="left", va="bottom", alpha=0.0,
+        )
+        bbox = probe.get_window_extent(renderer=renderer)
+        max_text_width_px = max(max_text_width_px, float(bbox.width))
+        probe.remove()
+
+    cell_width_px = max(1.0, float(ax.bbox.width) / max(1, ncol))
+    # Keep only a very small horizontal padding (~8% of one heatmap cell in total), so the
+    # column visually follows the digit-string length instead of looking like another full cell.
+    horizontal_padding_px = 0.08 * cell_width_px
+    count_col_width = max(0.35, (max_text_width_px + horizontal_padding_px) / cell_width_px)
+    count_x = ncol + count_col_width / 2.0
+
+    # The existing right border of the heatmap is the left border of the count column.
+    # Draw only horizontal separators; intentionally omit the count column's right border.
+    for y in range(nrow + 1):
+        ax.plot(
+            [ncol, ncol + count_col_width], [y, y],
+            color="black", linewidth=0.55, clip_on=False, zorder=10,
+        )
+    for i, (r, label) in enumerate(zip(rows, count_labels)):
+        ax.text(
+            count_x, i + 0.5, label,
+            ha="center", va="center", color="black", fontsize=count_fontsize,
+            clip_on=False, zorder=11,
+        )
+    # A compact header makes the meaning of the numeric column explicit while avoiding
+    # repeated 'n=...' strings beside every haplotype name.
+    ax.text(
+        count_x, -0.18, "n", ha="center", va="bottom", color="black",
+        fontsize=min(10.0, count_fontsize), clip_on=False, zorder=11,
+    )
+
     if show_legend:
         ax.legend(
             handles=[
@@ -286,7 +340,9 @@ def _draw_heatmap(
                 Patch(facecolor=missing_color, edgecolor="black", label="Missing GT"),
                 Patch(facecolor=absence_color, edgecolor="black", label="Genomic absence"),
             ],
-            frameon=False, loc="upper left", bbox_to_anchor=(1.01, 1), borderaxespad=0,
+            frameon=False, loc="upper left",
+            # Move the legend beyond the appended count column.
+            bbox_to_anchor=(1.03 + count_col_width / max(1, ncol), 1), borderaxespad=0,
         )
     return {"rows": rows, "counts": counts, "calls": calls, "nrow": nrow, "ncol": ncol, "cell_text": cell_text_mode, "cell_text_fontsize": base_fontsize if draw_cell_text else None}
 
@@ -445,7 +501,7 @@ def _draw_gene_structure(
         ax.legend(
             handles=[
                 Patch(facecolor=GENE_UTR_COLOR, edgecolor="none", label="UTR"),
-                Patch(facecolor=GENE_CDS_COLOR, edgecolor="none", label="Exon"),
+                Patch(facecolor=GENE_CDS_COLOR, edgecolor="none", label="CDS"),
                 Line2D([0], [0], color="black", lw=1.6, label="Intron"),
             ],
             loc="upper center", bbox_to_anchor=(0.62, 1.10), frameon=False, ncol=3,
@@ -585,10 +641,39 @@ def _hap_color_map(columns: Sequence[str], hap_palette: Optional[Sequence[str]] 
 
 
 def _resolve_ld_cmap(ld_cmap: Optional[str]):
+    """Resolve the LD colour map.
+
+    The default follows the familiar LDblockShow-style white -> yellow -> red
+    gradient, where low r² is white and high r² is red.  A user-supplied
+    Matplotlib colormap name still overrides this default.
+    """
+    default_cmap = LinearSegmentedColormap.from_list(
+        "EasyHap_LD_white_yellow_red",
+        ["#FFFFFF", "#FFFF00", "#FF0000"],
+        N=256,
+    )
+    resolved = "" if ld_cmap is None else str(ld_cmap).strip()
+    resolved_lower = resolved.lower()
+
+    # Backward compatibility: older EasyHap CLI/configuration code used
+    # ``viridis`` as the default value and may still pass that string into
+    # this plotting module even though the plotting default has changed.
+    # Treat that legacy default exactly like an unspecified/default colour map
+    # so LD plots reliably use white -> yellow -> red after upgrading only
+    # plotting.py.  Users who intentionally want Matplotlib viridis can request
+    # it explicitly as ``mpl:viridis``.
+    if resolved_lower in {
+        "", "default", "white_yellow_red", "white-yellow-red", "wyr", "viridis"
+    }:
+        return default_cmap
+
+    if resolved_lower.startswith("mpl:"):
+        resolved = resolved.split(":", 1)[1].strip()
+
     try:
-        return plt.get_cmap(ld_cmap or DEFAULT_LD_CMAP)
+        return plt.get_cmap(resolved)
     except Exception:
-        return plt.get_cmap(DEFAULT_LD_CMAP)
+        return default_cmap
 
 
 def _draw_group_stacked(ax, df: pd.DataFrame, plot_hap_level="hap", plot_min_count=1, show_legend=True, color_map=None, hap_palette: Optional[Sequence[str]] = None):
@@ -620,12 +705,15 @@ def _draw_group_stacked(ax, df: pd.DataFrame, plot_hap_level="hap", plot_min_cou
     tick_labels = [f"{g}\nn={int(display_n.loc[g])}" for g in prop.index]
     ax.set_xticks(x, tick_labels, rotation=20 if len(prop) > 3 else 0)
     ax.set_ylim(0, 1)
-    ax.set_ylabel("Haplotype frequency", fontsize=14)
-    ax.set_xlabel("Group", fontsize=14)
-    ax.tick_params(axis="both", labelsize=13)
-    ax.set_title("Haplotype composition by group")
+    ax.set_ylabel("Haplotype frequency", fontsize=17)
+    ax.set_xlabel("Group", fontsize=17)
+    ax.tick_params(axis="both", labelsize=15)
+    ax.set_title("Haplotype composition by group", fontsize=18)
     if show_legend:
-        ax.legend(frameon=False, bbox_to_anchor=(1.02, 1), loc="upper left")
+        ax.legend(
+            frameon=False, bbox_to_anchor=(1.02, 1), loc="upper left",
+            fontsize=14, title_fontsize=15,
+        )
 
 
 def plot_group_distribution(result: HapResult, df: pd.DataFrame, plot_formats: Sequence[str], plot_hap_level="hap", plot_min_count=1, hap_palette: Optional[Sequence[str]] = None):
@@ -666,24 +754,27 @@ def _draw_group_pies(fig, container, df: pd.DataFrame, plot_hap_level="hap", plo
             startangle=90,
             counterclock=False,
             wedgeprops={"edgecolor": "none", "linewidth": 0},
-            textprops={"fontsize": 11},
+            textprops={"fontsize": 14},
         )
         # Pie slices have no internal borders; retain only a very thin black outer circle.
         ax.add_patch(plt.Circle(
             (0.0, 0.0), 1.0, fill=False, edgecolor="black", linewidth=0.30, zorder=6,
         ))
-        ax.set_title(str(group), fontsize=13)
+        ax.set_title(str(group), fontsize=17)
         ax.text(
             0.5, -0.08, f"n={int(display_n.loc[group])}", transform=ax.transAxes,
-            ha="center", va="top", fontsize=12,
+            ha="center", va="top", fontsize=15,
         )
     for idx in range(n, nrows * ncols):
         ax = fig.add_subplot(sub[idx // ncols, idx % ncols])
         ax.axis("off")
     handles = [Patch(facecolor=color_map[h], edgecolor="none", label=h) for h in counts.columns]
-    fig.legend(handles=handles, loc="center right", bbox_to_anchor=(0.99, 0.5), frameon=False, title="Haplotype")
+    fig.legend(
+        handles=handles, loc="center right", bbox_to_anchor=(0.99, 0.5),
+        frameon=False, title="Haplotype", fontsize=14, title_fontsize=15,
+    )
     if title:
-        fig.suptitle(title, fontsize=13)
+        fig.suptitle(title, fontsize=18)
 
 def plot_group_pie_chart(result: HapResult, df: pd.DataFrame, plot_formats: Sequence[str], plot_hap_level="hap", plot_min_count=1, hap_palette: Optional[Sequence[str]] = None):
     counts = _group_count_table(df, plot_hap_level, plot_min_count)
@@ -863,16 +954,17 @@ def _draw_ld_triangle(ax, mat: pd.DataFrame, labels: Sequence[str], title: Optio
     ax.set_xlim(0, max(1, n - 1))
     ax.set_ylim(-max(1.0, n / 2.0), 0.16)
     ax.set_aspect("equal", adjustable="box")
-    ax.xaxis.tick_top()
-    ax.xaxis.set_label_position("top")
-    ax.set_xticks(np.arange(n), labels, rotation=90)
-    ax.tick_params(axis="x", pad=3, length=0)
+    # Variant coordinates are intentionally hidden.  Their x positions are still
+    # retained internally for the gene-to-LD guide lines, so annotation alignment
+    # is unchanged while the LD panel remains visually clean.
+    ax.set_xticks([])
+    ax.tick_params(axis="x", which="both", top=False, bottom=False, labeltop=False, labelbottom=False)
     ax.set_yticks([])
     for side in ("left", "right", "bottom"):
         ax.spines[side].set_visible(False)
     ax.spines["top"].set_visible(False)
     if title:
-        ax.text(0.01, 1.03, title, transform=ax.transAxes, ha="left", va="bottom", fontsize=12)
+        ax.text(0.01, 1.03, title, transform=ax.transAxes, ha="left", va="bottom", fontsize=14)
     sm = ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
     if show_colorbar and fig is not None:
@@ -893,7 +985,7 @@ def _ld_ordered(result: HapResult, strand: str):
     return mat, calls, labels
 
 
-def plot_ld_heatmap(result: HapResult, plot_formats: Sequence[str], gff_file: Optional[str] = None, ld_cmap: Optional[str] = None):
+def plot_ld_heatmap(result: HapResult, plot_formats: Sequence[str], gff_file: Optional[str] = None, ld_cmap: Optional[str] = DEFAULT_LD_CMAP):
     if len(result.variants) < 2:
         return
     features, gene, strand = _gene_context(result, gff_file)
@@ -925,7 +1017,9 @@ def plot_ld_heatmap(result: HapResult, plot_formats: Sequence[str], gff_file: Op
     _connect_gene_to_axis(
         fig, ag, ald, result, strand, np.arange(n), target_y=0.0, plot_window=plot_window
     )
-    fig.colorbar(sm, cax=cax, label="$r^2$")
+    cb = fig.colorbar(sm, cax=cax, label="$r^2$")
+    cb.ax.tick_params(labelsize=11)
+    cb.set_label("$r^2$", fontsize=13)
     _save_formats(fig, result.output_prefix + ".LD_r2_Heatmap", plot_formats)
 
 
@@ -960,8 +1054,9 @@ def _draw_world_background(ax, lons: Sequence[float], lats: Sequence[float]) -> 
     pad_y = max(5.0, lat_span * 0.18)
     ax.set_xlim(max(-180, lon_min - pad_x), min(180, lon_max + pad_x))
     ax.set_ylim(max(-60, lat_min - pad_y), min(85, lat_max + pad_y))
-    ax.set_xlabel("Longitude")
-    ax.set_ylabel("Latitude")
+    ax.set_xlabel("Longitude", fontsize=14)
+    ax.set_ylabel("Latitude", fontsize=14)
+    ax.tick_params(axis="both", labelsize=12)
     ax.grid(True, linestyle=":", linewidth=0.45, alpha=0.35)
     # Use an equal data aspect so one longitude unit and one latitude unit
     # occupy the same physical length. This keeps map pie markers circular
@@ -1035,7 +1130,7 @@ def _draw_geo_pies(ax, table: pd.DataFrame, classes: Sequence[str], color_map: D
                                 edgecolor="black", linewidth=0.30, zorder=6))
         label = str(loc).strip()
         if show_labels and label and label.lower() != "nan":
-            ax.text(float(lon), float(lat) - radius * 1.35, label, ha="center", va="top", fontsize=7, zorder=7)
+            ax.text(float(lon), float(lat) - radius * 1.35, label, ha="center", va="top", fontsize=10, zorder=7)
 
 
 def _draw_geo_bars(ax, table: pd.DataFrame, classes: Sequence[str], color_map: Dict[str, object]) -> None:
@@ -1063,7 +1158,7 @@ def _draw_geo_bars(ax, table: pd.DataFrame, classes: Sequence[str], color_map: D
                                fill=False, edgecolor="black", linewidth=0.30, zorder=6))
         label = str(loc).strip()
         if show_labels and label and label.lower() != "nan":
-            ax.text(float(lon), float(lat) - height * 0.68, label, ha="center", va="top", fontsize=7, zorder=7)
+            ax.text(float(lon), float(lat) - height * 0.68, label, ha="center", va="top", fontsize=10, zorder=7)
 
 
 def plot_haplotype_geography(
@@ -1100,9 +1195,12 @@ def plot_haplotype_geography(
             title = "Geographic haplotype distribution (stacked bar)"
             stem = "HaplotypeMapStackedBar"
         handles = [Patch(facecolor=color_map[c], edgecolor="none", label=str(c)) for c in classes]
-        ax.legend(handles=handles, title=("Haplotype" if plot_hap_level == "hap" else "Cluster"),
-                  frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
-        ax.set_title(f"{title}: {result.region.vcf_label}")
+        ax.legend(
+            handles=handles, title=("Haplotype" if plot_hap_level == "hap" else "Cluster"),
+            frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left",
+            fontsize=12, title_fontsize=13,
+        )
+        ax.set_title(f"{title}: {result.region.vcf_label}", fontsize=16)
         fig.subplots_adjust(left=0.08, right=0.82, bottom=0.10, top=0.90)
         _save_formats(fig, result.output_prefix + "." + stem, plot_formats)
 
@@ -1231,7 +1329,7 @@ def make_all_plots(
     make_network_plot: bool = True,
     map_style: str = "auto",
     hap_palette: Optional[Sequence[str]] = None,
-    ld_cmap: Optional[str] = None,
+    ld_cmap: Optional[str] = DEFAULT_LD_CMAP,
     cell_text: Optional[str] = None,
 ):
     # Standalone figures.

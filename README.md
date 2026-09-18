@@ -4,8 +4,6 @@
 
 **EasyHap** is a cross-platform toolkit for regional haplotype/genotype analysis and visualization using VCF/BCF or PLINK 1 BED/BIM/FAM genotype data from fungal, plant, and animal population resequencing projects.
 EasyHap separates **phase-independent multilocus genotype analysis** from **copy-resolved haplotype reconstruction**. Unphased VCF is accepted in `genotype` mode, whereas heterozygous genotypes must be phased for `copy` mode. EasyHap recognizes haploid, diploid, and polyploid genotype vectors and integrates variant recoding, haplotype/genotype reconstruction, population comparison, sequence-similarity clustering, sequence export, phenotype association, and publication-ready visualization.
-
-Documentation: https://github.com/Guangqi-He/EasyHap/wiki  
 ## Citation
 He, Guangqi, and Huixia Shou. 2026. “EasyHap: A Ploidy-Aware Toolkit for Haplotype Analysis, Visualization, and Favorable Allele Discovery.” Crop Design 5 (2): 100167. https://doi.org/10.1016/j.cropd.2026.100167.
 ## Workflow 
@@ -30,6 +28,7 @@ He, Guangqi, and Huixia Shou. 2026. “EasyHap: A Ploidy-Aware Toolkit for Haplo
 - PLINK 1 `.bed/.bim/.fam` input in genotype mode through both the CLI and graphical interface
 - Command-line and Tkinter graphical interfaces
 
+Documentation: https://github.com/Guangqi-He/EasyHap/wiki
 ## What's new in 1.3.0
 See [CHANGELOG.md](CHANGELOG.md) for the detailed change history.
 

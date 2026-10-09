@@ -1,58 +1,55 @@
-<p align="center">
-  <img src="images/EasyHap_logo.png" width="120" alt="EasyHap logo">
-</p>
+<p align="center"><img src="images/EasyHap_logo.png" width="120" alt="EasyHap logo"></p>
 
-**EasyHap** is a cross-platform toolkit for regional haplotype/genotype analysis and visualization using VCF/BCF or PLINK 1 BED/BIM/FAM genotype data from fungal, plant, and animal population resequencing projects.
-EasyHap separates **phase-independent multilocus genotype analysis** from **copy-resolved haplotype reconstruction**. Unphased VCF is accepted in `genotype` mode, whereas heterozygous genotypes must be phased for `copy` mode. EasyHap recognizes haploid, diploid, and polyploid genotype vectors and integrates variant recoding, haplotype/genotype reconstruction, population comparison, sequence-similarity clustering, sequence export, phenotype association, and publication-ready visualization.
+# EasyHap
+
+**Regional haplotype/genotype analysis, multi-region trait exploration and visualization.**
+
+EasyHap reads regional genotypes, constructs phase-independent genotype categories or known-phase chromosome-copy haplotypes, and produces descriptive statistics and figures. `aggregate` compares combinations of categories from multiple regions with numeric phenotypes. These comparisons are exploratory and do not adjust for population structure, kinship, or environmental covariates.
+
 ## Citation
-He Guangqi and Shou Huixia. 2026. “EasyHap: A Ploidy-Aware Toolkit for Haplotype Analysis, Visualization, and Favorable Allele Discovery.” Crop Design 5 (2): 100167. https://doi.org/10.1016/j.cropd.2026.100167.
-## Workflow 
-![EasyHap workflow](images/EasyHap_workflow3.png)
+
+He Guangqi and Shou Huixia. 2026. “EasyHap: A Ploidy-Aware Toolkit for Haplotype Analysis, Visualization, and Favorable Allele Discovery.” *Crop Design* 5 (2): 100167. https://doi.org/10.1016/j.cropd.2026.100167.
+
 ## Key features
-- VCF, VCF.GZ, and BCF input; unphased data are supported in phase-independent genotype mode
-- Haploid, diploid, and polyploid genotype support
-- `genotype` mode for phase-independent multilocus genotypes and `copy` mode for copy-resolved haplotypes (legacy aliases: `inbred`/`hybrid`)
-- SNPs, indels, multiallelic sites, and sequence/symbolic PAV/SV alleles, with structural absence (`ABS`) distinguished from ordinary missing GT
-- Haplotype reconstruction and sequence-similarity clustering
-- Group-wise haplotype frequency, diversity, and private-haplotype analysis
-- Trait-associated haplotype statistics with Kruskal-Wallis and BH-adjusted pairwise Mann-Whitney U tests
-- Pairwise dosage-based LD (`r²`) and inverted-triangle LD heatmaps
-- Strand-aware gene structure + haplotype and gene structure + LD visualizations
-- Pie charts, stacked barplots, trait boxplots, and REF/ALT haplotype heatmaps
-- Geographic and network visualization
-- Gene-structure variant filtering
-- Custom allele colors, haplotype color palettes, and LD heatmap colormaps
-- FASTA, PHYLIP, and NEXUS haplotype sequence export
-- PDF, SVG, and high-resolution PNG figures
-- Batch-region analysis with automatic skipping of low-information intervals
-- PLINK 1 `.bed/.bim/.fam` input in genotype mode through both the CLI and graphical interface
-- Command-line and Tkinter graphical interfaces
 
-Documentation: https://github.com/Guangqi-He/EasyHap/wiki
-## What's new in 1.3.0
-See [CHANGELOG.md](CHANGELOG.md) for the detailed change history.
+- **Four input families:** VCF/VCF.GZ/BCF, PLINK 1 BED/BIM/FAM, PLINK 2 PGEN/PVAR/PSAM, and HapMap; one genotype source per run.
+- **Phase-aware semantics:** default phase-independent `genotype` mode; `copy` mode for genuinely phased chromosome copies, with ploidy/phase-set validation.
+- **Targeted regional or variant-list analysis:** indexed variant retrieval where supported, variant QC (`--max-missing`, `--min-maf`), annotation-based selection, optional Fisher filtering and parallel batch analysis.
+- **Genetic and population summaries:** class reconstruction, diversity, private haplotypes, sequence-similarity clustering, LD, sequence-state exports and overlap/structural-absence audits.
+- **Phenotype analysis:** trait association and descriptive superior-haplotype candidates with a shared `--plot-min-count` eligibility threshold in the current development build.
+- **Multi-region workflows:** `easyhap aggregate` with trait-specific direction, multiple-testing correction, optional connection of *known* phased copies, and an exploratory two-region interaction model.
+- **Publication-ready figures:** haplotype + gene-structure panels, group composition, trait boxplots, LD heatmaps, maps, networks and a new all-sample `easyhap heatmap` command.
+- **Cross-platform delivery:** CLI and GUI; Windows builds can bundle `bcftools` and `plink2` executables to avoid compiling `pgenlib` on Windows.
 
-## Installation
-### installation with an existing Python environment (Linux/MacOS)
-EasyHap requires Python 3.9 or later.
+## Recent additions and refinements (October 2026)
+
+| Area | Summary |
+|---|---|
+| Expanded inputs | `--pfile`, `--hmp`, indexed and backend-selectable VCF/BCF reading, plus portable Windows PLINK/BCF tools |
+| Targeted filtering | `--variant-list` (`-l`, `--var-list`), `--max-missing`, `--min-maf`, `--fisher-test` (`allele` or `carrier`), and multi-process `--threads` |
+| Downstream commands | `easyhap aggregate` and `easyhap heatmap` |
+| Multi-region interpretation | Descriptive candidate ranking, BH-adjusted trait comparisons, optional `--phase-link` and `--interaction` |
+| Cleaner analyze outputs | Keep the effective `.SampleGenotypeTokens.tsv` only; apply `--plot-min-count` to both trait tests and superior-haplotype candidates as well as displayed classes |
+| Figure polish | Compact gene-structure/heatmap connector spacing and consistent allele/class colors |
+
+**Note:** `aggregate --min-count`, `--test-min-count` and `--candidate-min-count` are intentionally **independent** thresholds. Do not confuse them with the shared `analyze --plot-min-count` threshold.
+
+## Install and run
+
+Python 3.9+ is required. Linux source installation:
+
 ```bash
-unzip EasyHap_Linux.zip
-cd EasyHap
-python -m pip install -r requirements.txt
+unzip EasyHap_v1.4.0_Linux.zip
+cd EasyHap_v1.4.0_Linux
 python -m pip install -e .
+easyhap --version
 easyhap analyze --help
+easyhap aggregate --help
 ```
-#### installation in a Conda environment (Linux/MacOS)
-```bash
-conda create -n easyhap python=3.10 -y
-conda activate easyhap
-unzip EasyHap-xxx.zip
-cd EasyHap-xxx/Linux
-python -m pip install -r requirements.txt
-python -m pip install -e .
-easyhap analyze --help
-```
-### Windows
+
+The dependencies include NumPy, pandas, SciPy, matplotlib, networkx, pysam, cyvcf2, and pgenlib. Tkinter must be installed separately by the operating system if it is absent. Start the graphical interface with `easyhap-gui` or `python easyhap_gui.py`. On Linux, `pgenlib` can be used for direct PGEN reading where available. In the updated cross-platform reader, an installed PLINK/PLINK2 executable may instead be used for region-limited PLINK-to-VCF conversion.
+
+### Windows standalone executable
 The Windows release provides a standalone executable and does not require a separate Python installation.
 1. Download the Windows `EasyHap.exe` release.
 2. Double-click `EasyHap.exe`.
@@ -69,198 +66,161 @@ The Windows release provides a standalone executable and does not require a sepa
   </tr>
 </table>
 
-## Phased vs unphased input: which mode should I use?
+## Inputs and modes
 
-EasyHap does **not** internally phase genotypes. This is intentional: statistical/read-based phasing is a specialized task, and the appropriate method differs between diploid, polyploid, pedigree, short-read, and long-read datasets.
+| Input | Reading and genotype assumptions | Modes |
+|---|---|---|
+| VCF, VCF.gz/BGZF, BCF | FORMAT/GT; haploid, diploid, and polyploid allele vectors; PS is retained | `genotype`, `copy` |
+| PLINK BED/BIM/FAM | SNP-major binary BED; A2 is REF-index 0, A1 is ALT-index 1; diploid hard-call representation | `genotype` |
+| PLINK PGEN/PVAR/PSAM | Real pgenlib decoding, including multiallelic hard calls; two allele slots per sample; phase/dosage are not used | `genotype` |
+| HapMap HMP, HMP.gz | Single letters and two-base IUPAC codes use diploid conventions; explicitly separated allele vectors retain all supplied copies | `genotype`; `copy` only with explicit, consistent phase |
 
-- `--mode genotype` (default): accepts phased **or unphased** VCF/BCF. It builds a phase-independent multilocus genotype state. For example, `0/1` and `1/0` are canonicalized to the same state. This mode is appropriate for highly inbred/selfing materials, PAV-dominant analyses, PLINK input, or analyses where chromosome-copy assignment is not required.
-- `--mode copy`: reconstructs one haplotype per chromosome copy. Any **heterozygous unphased** genotype such as `0/1`, `1/2`, or `0/1/1/2` triggers an informative error. Homozygous calls such as `0/0` do not require meaningful phase because copy assignment is identical.
+Compressed BIM/FAM and PVAR/PSAM metadata are accepted. Sample IDs remain strings, including leading zeroes and literal `NA`. IDs must be unique; duplicate PLINK IIDs must be resolved before analysis. Malformed metadata or mismatched dimensions fail explicitly.
 
-Legacy mode names remain accepted for backward compatibility: `inbred` = `genotype`, `hybrid` = `copy`.
+VCF `auto` chooses an available appropriate backend and, in the updated Windows build, prefers bundled/available bcftools for compressed VCF/BCF regional reads. `--vcf-backend plain|pysam|cyvcf2|bcftools` selects one explicitly. BCF requires a binary-capable backend. Ordinary gzip VCF can be scanned with `plain`; indexed access needs BGZF/BCF and an index. `bcftools` can be supplied through `EASYHAP_BCFTOOLS` or PATH. Extraction errors are reported and do not silently remove requested filters.
 
-### If your VCF is not phased
+`genotype` is the default. At each marker, the default `slash` policy preserves the complete unordered allele multiset: `0/1` and `1/0` are equivalent; `0/.` differs from `0/0`; `0/0/0/1` differs from `0/0/1/1`. Homozygous diploid states now appear as `A/A` rather than `A`. The optional `iupac` and `missing` policies deliberately lose some genotype information and are not suitable for dosage-sensitive analysis.
 
-For a diploid population, **Beagle 5.5** is a convenient statistical phasing option. A minimal example is:
+`copy` requires fully phased informative genotypes, including partially called heterozygous states. Each sample must have consistent called ploidy within the region. Informative markers in different PS blocks cannot be concatenated. Fully phased VCF GTs without PS use the VCF implicit phase-set convention. Homozygous markers do not constrain phase. Analyze different chromosomes separately. EasyHap does not infer new phase from unphased genotypes.
+
+### External phasing before `--mode copy`
+
+EasyHap does not infer phase. The appropriate tool depends on ploidy and available read/pedigree data. For example:
 
 ```bash
-java -Xmx32g -jar beagle.27Feb25.75f.jar gt=input.vcf.gz out=input_beagle_phased nthreads=16
-```
+# Statistical diploid phasing
+java -Xmx32g -jar beagle.27Feb25.75f.jar gt=input.vcf.gz out=phased nthreads=16
 
-This produces `input_beagle_phased.vcf.gz`. A genetic map can be supplied when available, for example `map=genetic_map.txt`. Beagle phases genotypes and can impute sporadically missing genotypes during phasing; check Beagle's documentation and choose options that match your study design.
-
-For read-backed diploid phasing, **WhatsHap** can be used when BAM/CRAM reads are available:
-
-```bash
+# Read-backed diploid phasing
 whatshap phase --reference reference.fa -o phased.vcf.gz input.vcf.gz input.bam
+
+# Read-backed polyploid phasing (example: tetraploid)
+whatshap polyphase input.vcf.gz input.bam --ploidy 4 \
+  --reference reference.fa -o phased_polyploid.vcf.gz
 ```
 
-For polyploids, WhatsHap provides `polyphase`:
+Do not assume that nearby SNP phasing automatically resolves complex structural variants or independent PS blocks. Use `genotype` if reliable copy-level phase is unavailable.
+
+gVCF `<NON_REF>`/`<*>` reference-confidence blocks are excluded; unspecified non-reference GT alleles become unknown states. HapMap `B/D/H/V` represent ambiguous three-base sets and are rejected instead of being turned into invented diploid pairs.
+
+## Regional analysis
 
 ```bash
-whatshap polyphase input.vcf.gz input.bam --ploidy 4 --reference reference.fa -o phased_polyploid.vcf.gz
+easyhap analyze --vcf cohort.vcf.gz --region Chr1:100-500 \
+  --mode genotype --traits traits.tsv --group groups.tsv \
+  --max-missing 0.2 --min-maf 0.05 --plot --outdir results
 ```
 
-WhatsHap's documentation notes that its standard read-based phasing handles SNVs and small/complex sequence variants, while structural variants are not phased by that workflow. Therefore, do not assume that an SV/PAV is copy-resolved merely because nearby SNPs are phased.
+Coordinates are 1-based and inclusive. Region files contain `chrom<TAB>start<TAB>end`, one region per line. Variant lists accept IDs, `Chr1:100`, `Chr1_100`, or `chrom<TAB>position` rows. Coordinate-qualified requests never expand to other chromosomes; mixed ID/coordinate requests are a union. Bare positions can match any chromosome and should be used only with a regional constraint.
 
-For large diploid datasets, **SHAPEIT5** is another option. A typical chromosome-level command is:
+Processing order is region/variant selection, gene-feature selection, sample-based missingness/MAF QC, optional Fisher filtering, state construction, and reporting. Failed QC rows remain in `.VariantQCFilter.tsv`. MAF is the second-largest observed allele frequency at multiallelic sites. Gene features follow GFF3 Parent or GTF gene/transcript relationships; exon/CDS/UTR and intron intervals are unions across the selected gene's annotated transcripts. Introns are gaps between exons, not unannotated gene flanks.
+
+Optional Fisher filtering uses independent samples as observations. The default `--fisher-test allele` tests each observed ALT carrier class against the others, with Bonferroni correction within a site and optional `--fisher-adjust bh` across sites. `--fisher-test carrier` restores the legacy any-ALT-versus-REF carrier comparison. Completely missing or partially called GTs are omitted from these tables. Each group needs called observations.
 
 ```bash
-phase_common --input input.bcf --region 1 --map chr1.gmap.gz --output chr1.phased.bcf --thread 16
+easyhap analyze --pfile cohort --region Chr1:100-500 --mode genotype --outdir pgen_results
+easyhap analyze --bfile cohort --region 1:100-500 --mode genotype --outdir bed_results
+easyhap analyze --hmp cohort.hmp.gz --region Chr1:100-500 --outdir hmp_results
 ```
 
-After external phasing, run EasyHap copy mode, for example:
+## Structural absence and outputs
 
-```bash
-easyhap analyze \
-  --vcf input_beagle_phased.vcf.gz \
-  --group groups.tsv \
-  --gff annotation.gff3 \
-  --region Chr10:100000-120000 \
-  --mode copy \
-  --plot \
-  --plot-format pdf,png \
-  --outdir GeneA_copy_haplotypes
-```
+`N` means unknown genotype state; `ABS` means genomic absence supported by an explicit deletion or spanning-deletion allele. Literal deletions are trimmed by their shared prefix/suffix, so retained anchor bases are not masked. Unequal-length complex replacements and breakends do not imply a simple deletion interval. Symbolic deletions need END or usable SVLEN evidence; per-ALT SVLEN takes priority over site-level END when several ALT lengths are supplied. Upstream events, and deletion events omitted by marker/feature/QC selection, contribute overlapping physical context without being added as target markers. Masking still requires each sample's deletion genotype evidence.
 
-## Quick start
-### Minimal analysis
-```bash
-easyhap analyze --vcf input.vcf.gz --region Chr10:100000-120000
-```
-Exactly one genotype source (`--vcf` or `--bfile`) and one region source (`--region` or `--region-file`) are required. The default `--mode genotype` does **not** require phasing. Use `--mode copy` only with VCF/BCF when chromosome-copy-resolved haplotypes are needed. Results are written to `EasyHap_results` by default.
-### PLINK BED/BIM/FAM analysis
-```bash
-easyhap analyze --bfile cohort --region 1:100000-200000 --mode genotype --outdir cohort_region
-```
-`cohort.bed`, `cohort.bim`, and `cohort.fam` are read as one PLINK dataset. EasyHap 1.3 uses BIM-coordinate indexing and direct BED seeks for regional access instead of rescanning the complete BED file for every region.
+Unphased genotype-mode masking requires evidence that all copies at that marker are absent. Missing alleles do not establish an all-copy deletion. Copy-mode masks require compatible phase when orientation matters. Called downstream GTs contradicted by deletion evidence are recorded in `.StructuralAbsenceAudit.tsv`.
 
-### Population analysis with figures
-```bash
-easyhap analyze --vcf input.vcf.gz --group groups.tsv --gff annotation.gff3 --region Chr10:100000-120000 --plot --plot-format pdf,png --outdir GeneA_results
-```
-### Batch analysis
-```bash
-easyhap analyze --vcf input.vcf.gz --group groups.tsv --gff annotation.gff3 --region-file regions.tsv --plot --plot-format pdf,png --outdir batch_results
-```
-Regions with fewer than `--min-variants` retained variants are skipped and recorded in `EasyHap.log`.
-### Trait, gene structure, and LD analysis
-```bash
-easyhap analyze --vcf input.vcf.gz --group groups.tsv --traits traits.tsv --trait-cols Plant_height,Seed_weight --gff annotation.gff3 --region Chr10:100000-120000 --plot --plot-format pdf,png --outdir GeneA_results
-```
-### Custom plot palettes
-```bash
-easyhap analyze --vcf input.vcf.gz --group groups.tsv --gff annotation.gff3 --region Chr10:100000-120000 --plot --plot-format pdf,png --hap-palette "#4E79A7,#F28E2B,#E15759,#76B7B2,#59A14F" --ld-cmap magma
-```
-`--hap-palette` controls haplotype colors in the pie chart, stacked barplot, and trait boxplot. `--ld-cmap` accepts a Matplotlib colormap name such as `viridis`, `magma`, `plasma`, `coolwarm`, or `RdYlBu_r`.
+### Output simplification and class eligibility
 
-### Structural absence vs missing genotype
+In the updated `analyze` workflow, only `.SampleGenotypeTokens.tsv` is retained as the sample-token table. It represents the **effective** analyzed states after structural-absence interpretation; `.RawSampleGenotypeTokens.tsv` is no longer written.
 
-EasyHap keeps ordinary missing genotype and genomic absence separate:
+`--plot-min-count N` defines the minimum class size for classes shown in haplotype/cluster plots and for the classes included in `.TraitAssociationTests.tsv` and `.SuperiorHaplotypeCandidates.tsv`. This avoids singleton candidates when a larger minimum is requested. Core class/sample tables may still contain less-common states for provenance; `--plot-min-count` is not a variant filter.
 
-- `./.` or another no-call without structural evidence -> `N` (missing GT).
-- VCF spanning-deletion allele `*` -> `ABS` (genomic/structural absence).
-- For an explicit deletion/PAV with a known interval (`END`, sequence-resolved deletion, or an equivalent deletion allele), downstream markers inside the deleted interval are masked as `ABS` only when the sample/copy genotype supports that deletion.
-- An unphased heterozygous deletion is **not** arbitrarily assigned to one chromosome copy.
+Key outputs:
 
-In haplotype-distance calculations, downstream `ABS` markers are treated as non-comparable states so that one large deletion is not counted repeatedly as dozens of independent SNP differences; the deletion/PAV event itself remains an informative haplotype feature.
-
-### Multiallelic and overlapping variants
-
-EasyHap preserves the VCF allele index for indels/SVs, so two ALT alleles with the same length but different sequences remain distinct states. For example, `REF=A, ALT=AT,AG` is represented by two unique ALT tokens rather than collapsing both to `+1`.
-
-Overlapping records are retained and reported in `*.VariantOverlap.tsv`:
-
-- a SNP/InDel inside a supported deletion interval can be structurally masked as `ABS`;
-- same-start SNP/InDel records are retained separately;
-- nested/shared-breakpoint complex SV records are retained separately and reported rather than being automatically reinterpreted as a caller-independent complex allele.
-
-EasyHap therefore does not claim to resolve arbitrary caller-specific complex-SV representations automatically.
-
-### PLINK input
-
-PLINK 1 binary files are accepted in phase-independent genotype mode:
-
-```bash
-easyhap analyze \
-  --bfile cohort \
-  --region 1:100000-200000 \
-  --mode genotype \
-  --outdir cohort_region
-```
-
-`cohort.bed`, `cohort.bim`, and `cohort.fam` must all be present. `--bfile` may be given as the bare prefix or as the path to any one member of the trio; EasyHap normalizes it to the common prefix. PLINK BED genotypes are biallelic and unphased, so `--mode copy` is intentionally disabled. EasyHap 1.3 builds a chromosome/position index from BIM and seeks directly to fixed-width SNP-major BED records; in batch analyses the reader/index is reused across regions. EasyHap follows PLINK's own VCF-export convention internally (BIM allele 2 as REF-index 0, allele 1 as ALT-index 1), but these labels should not be interpreted as proof of reference-genome ancestry.
-
-## Main command-line options
-### Required inputs
-| Option | Description |
+| Output suffix | Content |
 |---|---|
-| `--vcf` | VCF, VCF.GZ, or BCF file; mutually exclusive with `--bfile` |
-| `--bfile` | PLINK 1 binary prefix (`.bed/.bim/.fam`); genotype mode only |
-| `--region` | One genomic interval, e.g. `Chr10:100000-120000` |
-| `--region-file` | TAB-delimited batch interval file; use instead of `--region` |
-### Optional biological inputs
-| Option | Description |
-|---|---|
-| `--group` | TAB-delimited sample-group file without a header |
-| `--traits` | TAB-delimited trait table with a header; first column is sample/accession |
-| `--trait-cols` | Comma-separated trait columns to analyze/plot; blank means all trait columns |
-| `--gff` | GFF3/GTF annotation used for gene structure visualization |
-### Analysis options
-| Option | Default | Description |
-|---|---:|---|
-| `--mode` | `genotype` | `genotype` for phase-independent multilocus states or `copy` for copy-resolved haplotypes; `inbred`/`hybrid` remain aliases |
-| `--hetero-policy` | `slash` | Heterozygous-site encoding in inbred mode: `slash`, `iupac`, or `missing` |
-| `--min-variants` | `2` | Minimum retained variants required for a region |
-| `--gene-feature` | `all` | Restrict variants to the selected feature of the primary overlapping gene; non-all choices require --gff [all] |
-| `--cluster-threshold` | `0.15` | Sequence-distance threshold for haplotype clustering |
-| `--fisher-groups` | — | Two comma-separated groups for optional variant filtering |
-| `--fisher-alpha` | — | Significance threshold for Fisher filtering |
-| `--fisher-adjust` | `none` | Multiple-testing adjustment: `none` or `bh` |
-| `--vcf-backend` | `auto` | VCF reader: `auto`, `cyvcf2`, `pysam`, or `plain` |
-| `--no-ld` | off | Disable LD calculation and LD plotting |
-| `--no-processed` | off | Do not write processed allele/genotype tables |
-| `--outdir` | `EasyHap_results` | Output directory |
+| `.HapSummary.tsv`, `.HapGroup.tsv` | Marker states and sample categories |
+| `.SampleGenotypeTokens.tsv` | Effective states, including inferred ABS |
+| `.AnalysisVariants.tsv`, `.SampleQC.tsv` | Always-written marker/reference and sample-quality metadata |
+| `.HaplotypeCopies.tsv` | Ordered copies with chromosome, phase block, and input identity; empty in genotype mode |
+| `.AnalysisManifest.json` | Version, actual backend, source SHA256 identities, and deletion context |
+| `.LD_r2_matrix.tsv`, `.LD_pairs.tsv` | Pearson r² of any-ALT allele fractions; partial GTs and masked markers excluded |
+| `.LD_allele_r2_matrix.tsv`, `.LD_allele_pairs.tsv` | Separate dosage correlations for each ALT |
+| `.HaplotypeNetworkEdges.tsv` | Comparable-marker differences and number of markers compared |
+| `.Haplotype.fa/.phy/.nex`, `.AlleleStateMap.tsv` | Discrete state-coded alignments and decoding map |
 
-### Visualization options
-| Option | Default | Description |
-|---|---:|---|
-| `--plot` | off | Generate standalone figures |
-| `--plot-format` | `pdf` | Comma-separated output formats: `pdf`, `svg`, `png` |
-| `--plot-hap-level` | `hap` | Plot individual haplotypes (`hap`) or clusters (`cluster`) |
-| `--plot-min-count` | `1` | Minimum class count retained in displayed haplotype/cluster plots |
-| `--palette` | — | Compact REF,ALT[,MISSING] allele heatmap palette |
-| `--ref-color` | `#70AD47` | REF cell color in haplotype heatmaps |
-| `--alt-color` | `#4472C4` | ALT cell color in haplotype heatmaps |
-| `--missing-color` | `#D9D9D9` | Missing-genotype cell color in haplotype heatmaps |
-| `--absence-color` | `#FFFFFF` | Genomic/structural-absence (`ABS`) cell color |
-| `--hap-palette` | built-in palette | Comma-separated haplotype colors used consistently in pie, stacked-bar, and trait boxplots |
-| `--ld-cmap` | `viridis` | Matplotlib colormap used for the LD heatmap |
-| `--cell-text` | `auto` | Allele/base labels inside haplotype heatmap cells |
-| `--map-style` | `auto` | Geographic haplotype overlay when sample-group columns 3-4 contain latitude/longitude: auto=pie [auto] |
-| `--no-network` | `auto` | Disable minimum-spanning haplotype network output |
+LD plots use the same mask as the tables. Undefined LD, including monomorphic loci, remains missing; distances between chromosomes have no bp value. Network distances omit missing/ABS markers and count a causal deletion once. Zero comparable markers yield no edge. Similarity components are descriptive groups, not phylogenetic inference.
 
-For the full input specifications, statistical definitions, output-file descriptions, examples, and troubleshooting, see the [EasyHap Wiki](https://github.com/Guangqi-He/EasyHap/wiki).
+The alignments encode marker states, not assembled nucleotide sequences. Decode them with `.AlleleStateMap.tsv`; known states never use the NEXUS missing symbol. Frequency/diversity outputs in genotype mode describe genotype categories; in copy mode they count chromosome copies. Trait candidate tables are descriptive.
 
-## Input overview
+Batch `--threads` uses process workers and reuses readers within each worker. Python callers using more than one worker must follow the usual `if __name__ == '__main__':` entry-point guard. `.RegionStatus.tsv` distinguishes successful, skipped, and failed regions; partial/error or all-skipped CLI runs return a nonzero exit status. Completed regions remain available when another region fails.
 
-- **VCF/BCF:** phased or unphased input is accepted in `genotype` mode; heterozygous genotypes must be phased for `copy` mode.
-- **PLINK BED/BIM/FAM:** accepted in `genotype` mode through `--bfile PREFIX`.
-- **Region file:** TAB-delimited `chrom  start  end`, without a header.
-- **Group file:** TAB-delimited `sample  group`, without a header.
-- **Trait table:** TAB-delimited with a header; the first column is the sample/accession identifier.
-- **GFF3/GTF:** gene, transcript, exon, CDS, and UTR records are recognized for visualization.
+For deletion context without reliable END indexing, a reader builds a cache of deletion records once. The first such query can scan the input; it only decodes candidate deletion GTs. Content fingerprints also require one file read and are cached. Very large cohorts have not been benchmarked in this revision.
 
-Detailed examples are provided in the `examples/` directory and in the Wiki. Synthetic reviewer-validation datasets covering unphased diploids, highly heterozygous phased diploids, autotetraploids, subgenome-separated allotetraploid examples, multiallelic/overlapping records, and large deletions are in `examples/reviewer_validation/`. Each validation dataset includes a matching group file and GFF3 annotation so the documented commands can directly generate population and gene-structure plots in both PDF and PNG formats.
+## Multi-region exploratory comparison
 
-## Graphical interface
-Launch the GUI with:
 ```bash
-python easyhap_gui.py
+easyhap aggregate --indir results \
+  --regions 'Chr1:100-500,Chr2:200-600' \
+  --traits traits.tsv --test-min-count 2 --candidate-min-count 5 \
+  --trait-directions 'Height=higher,Disease=lower' --fdr-scope run \
+  --outdir aggregate
 ```
-The GUI is organized into **Inputs**, **Analysis**, and **Visualization** tabs. In EasyHap 1.3, the Inputs tab provides a genotype-source selector for either **VCF/VCF.GZ/BCF** or **PLINK 1 BED/BIM/FAM**. When PLINK is selected, browsing any `.bed`, `.bim`, or `.fam` file automatically derives the shared prefix, and the analysis is restricted to genotype/inbred mode because BED is unphased. The Visualization tab includes separate controls for REF/ALT/missing colors, a shared haplotype color palette for pie/stacked-bar/trait plots, and the LD heatmap colormap.
 
-## License
-EasyHap is distributed under the GNU General Public License v3.0 or later (GPL-3.0-or-later).
+Two or more distinct regions are required. Batch combination files contain one tab/comma-separated region list per line. The region filenames are matched exactly; duplicate matches are errors. A sample must have a valid category in every selected region. Empty categories and all-marker-missing samples identified by new `.SampleQC.tsv` files are excluded with reasons. Legacy outputs without QC metadata cannot establish the latter condition.
 
-## Author
-Guangqi He
+Group labels must agree across files; `All` is an unspecified fallback. An explicit trait file is authoritative and must exist and match samples. Without it, embedded numeric traits are coalesced only when shared values agree. Trait files are not silently discovered in parent directories. Duplicate IDs, unavailable requested traits, or conflicting embedded values fail explicitly.
+
+Thresholds are independent:
+
+- `--min-count`: plotting threshold only; excluded classes remain in `Others` in frequency plots.
+- `--test-min-count` (default 2): finite phenotype count per category used in tests.
+- `--candidate-min-count` (default 5): count required for a descriptive candidate rank.
+
+Primary tests are Kruskal–Wallis overall and pairwise Mann–Whitney U. ANOVA and Welch t-tests are supplementary and retain their respective distributional assumptions. BH correction uses separate families for each test type and overall/pairwise comparison. `--fdr-scope run` pools traits and combinations in the invocation within those families; `trait` separates trait families while still including batch combinations. Missing or unestimable tests are reported.
+
+`Rank` and `CandidateRank` apply only to supported candidates; `DescriptiveRank` includes all classes. The direction is `higher` by default and can be set globally or per trait. Mean differences are relative to all retained samples with finite values for that trait. Student-t 95% mean intervals are descriptive and unadjusted; singleton intervals are unavailable. A high rank does not establish an optimum, significance, or causal effect.
+
+Retention counts, exclusion reasons, raw combination frequencies, and source/settings manifests are written. Colors are consistent across plots, and jitter is reproducible. Batch calls return every combination and write `Aggregate_BatchIndex.tsv`.
+
+
+## All-sample haplotype heatmap
+
+```bash
+easyhap heatmap --indir results --region Chr1:100-500 \
+  --group groups.tsv --cluster-method average \
+  --plot-format pdf,png --outdir sample_heatmaps
+```
+
+This command reuses previously generated `analyze` output and visualizes **all analyzed samples**, with optional population grouping and within-group clustering. It renders allele states by color, separating REF, ALT, heterozygous, missing (`N`) and structural absence (`ABS`). Supply `--region-file` for multiple intervals; it accepts one region label per line or three columns (`chrom start end`). Output: `*.AllSampleHaplotypeHeatmap.pdf/png/svg`. See the [Heatmap Command](https://github.com/Guangqi-He/EasyHap/wiki/Heatmap-Command).
+
+## Optional phase connection and interaction model
+
+```bash
+easyhap aggregate --indir copy_results --regions 'Chr1:1-150,Chr1:151-300' \
+  --phase-link --interaction --outdir aggregate
+```
+
+`--phase-link` reads new copy sidecars. A sample resolves only when the regions share chromosome, input fingerprint, copy count, and informative phase block. Homozygous regions impose no orientation. `Aggregate_KnownPhase.tsv` records resolved/unresolved status and reasons; `Aggregate_PhasedCopies.tsv` lists resolved multilocus copies. Ordinary unordered category combinations remain the basis of phenotype comparisons. This is connection of existing phase, not statistical or read-based phasing across independent blocks.
+
+`--interaction` fits a continuous-phenotype categorical OLS model for exactly two regions, comparing `y ~ A + B` to `y ~ A + B + A:B` with a nested-model F test. `A` and `B` are regional genotype/diplotype categories, not measured gene expression. It requires two levels per factor, all factorial cells, the chosen minimum replication per cell, and positive residual degrees of freedom/variance. Missing cells or inadequate support produce `NOT_ESTIMABLE`, with a reason.
+
+Outputs contain F, degrees of freedom, p/BH-adjusted p, additive/full R², ΔR², partial η², and treatment-coded interaction contrasts with SE and 95% CI. Contrasts are differences of differences relative to the stated reference levels. This model assumes independent observations and suitable continuous residuals; logistic/count models and covariate adjustment are not implemented. Statistical nonadditivity is an exploratory signal, not proof of biological epistasis.
+
+## Reproducible example and tests
+
+`examples/aggregate_demo/` contains 72 synthetic samples, nine replicated two-region categories, phased variants, traits, groups, annotation, and region files. See its [README](examples/aggregate_demo/README.md) for commands. The original reviewer examples are preserved in `examples/reviewer_validation.zip`.
+
+```bash
+python -m pip install -e '.[dev]'
+python -m pytest -q tests
+```
+
+Project links: [repository](https://github.com/Guangqi-He/EasyHap), [wiki](https://github.com/Guangqi-He/EasyHap/wiki). Original GPL-3.0-or-later licensing is retained.
+
+## Documentation and scope
+
+- [Analyze Command](https://github.com/Guangqi-He/EasyHap/wiki/Analyze-Command) · [Aggregate Command](https://github.com/Guangqi-He/EasyHap/wiki/Aggregate-Command) · [Heatmap Command](https://github.com/Guangqi-He/EasyHap/wiki/Heatmap-Command)
+- [Input Files](https://github.com/Guangqi-He/EasyHap/wiki/Input-Files) · [Trait Association](https://github.com/Guangqi-He/EasyHap/wiki/Trait-Association) · [Output Files](https://github.com/Guangqi-He/EasyHap/wiki/Output-Files) · [Example Workflows](https://github.com/Guangqi-He/EasyHap/wiki/Example-Workflows)
+
+**Interpretation:** haplotype/trait associations and multi-region ranking are exploratory. `aggregate` does **not** adjust for kinship, population structure, or environment; an interaction term is not proof of causal epistasis. For publication-quality association claims, validate candidates using an appropriate adjusted model and independent evidence.

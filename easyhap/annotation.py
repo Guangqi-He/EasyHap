@@ -34,7 +34,9 @@ def _parse_attrs(text: str) -> Dict[str, str]:
     return out
 
 
-def read_annotation_features(path: str, chrom: str, start: int, end: int) -> List[AnnotationFeature]:
+def read_annotation_features(
+    path: str, chrom: str, start: int, end: int
+) -> List[AnnotationFeature]:
     """Read gene-structure features overlapping a genomic interval from GFF3/GTF."""
     opener = gzip.open if path.endswith(".gz") else open
     type_map = {
@@ -60,7 +62,7 @@ def read_annotation_features(path: str, chrom: str, start: int, end: int) -> Lis
             parts = raw.rstrip("\n\r").split("\t")
             if len(parts) < 9:
                 continue
-            seqid, _, raw_type, s, e, _, strand, _, attrs = parts
+            seqid, _, raw_type, s, e, _, strand, _, attrs = parts[:9]
             if seqid != chrom:
                 continue
             try:
@@ -72,7 +74,9 @@ def read_annotation_features(path: str, chrom: str, start: int, end: int) -> Lis
             ftype = type_map.get(raw_type.lower(), raw_type)
             if ftype not in keep_types:
                 continue
-            features.append(AnnotationFeature(seqid, si, ei, strand, ftype, _parse_attrs(attrs)))
+            features.append(
+                AnnotationFeature(seqid, si, ei, strand, ftype, _parse_attrs(attrs))
+            )
     return features
 
 
@@ -80,7 +84,9 @@ def _overlap_len(start1: int, end1: int, start2: int, end2: int) -> int:
     return max(0, min(end1, end2) - max(start1, start2) + 1)
 
 
-def choose_primary_gene(features: Sequence[AnnotationFeature], region: Region) -> Optional[AnnotationFeature]:
+def choose_primary_gene(
+    features: Sequence[AnnotationFeature], region: Region
+) -> Optional[AnnotationFeature]:
     """Choose the gene/transcript with the largest overlap with the requested region."""
     genes = [f for f in features if f.ftype == "gene"]
     if not genes:
@@ -110,7 +116,9 @@ def _merge_intervals(intervals: Iterable[Tuple[int, int]]) -> List[Tuple[int, in
     return merged
 
 
-def _subtract_intervals(base: Tuple[int, int], covered: Sequence[Tuple[int, int]]) -> List[Tuple[int, int]]:
+def _subtract_intervals(
+    base: Tuple[int, int], covered: Sequence[Tuple[int, int]]
+) -> List[Tuple[int, int]]:
     segments = [base]
     for cs, ce in _merge_intervals(covered):
         updated: List[Tuple[int, int]] = []
@@ -124,6 +132,42 @@ def _subtract_intervals(base: Tuple[int, int], covered: Sequence[Tuple[int, int]
                 updated.append((ce + 1, e))
         segments = updated
     return [(s, e) for s, e in segments if s <= e]
+
+
+def gene_children(features, gene):
+    """Resolve GFF3 Parent or GTF gene_id/transcript_id, excluding neighboring genes."""
+    primary_ids = {
+        gene.attrs[k] for k in ("ID", "gene_id", "transcript_id") if gene.attrs.get(k)
+    }
+    selected_ids = set(primary_ids)
+    for _ in range(len(features) + 1):
+        old = set(selected_ids)
+        for f in features:
+            parents = set(f.attrs.get("Parent", "").split(",")) - {""}
+            belongs = bool(
+                parents & selected_ids
+                or f.attrs.get("gene_id") in primary_ids
+                or f.attrs.get("transcript_id") in selected_ids
+            )
+            if belongs:
+                selected_ids.update(
+                    f.attrs[k] for k in ("ID", "transcript_id") if f.attrs.get(k)
+                )
+        if old == selected_ids:
+            break
+    children = []
+    for f in features:
+        if f.ftype not in {"exon", "CDS", "UTR", "five_prime_UTR", "three_prime_UTR"}:
+            continue
+        parents = set(f.attrs.get("Parent", "").split(",")) - {""}
+        if (
+            parents & selected_ids
+            or f.attrs.get("gene_id") in primary_ids
+            or f.attrs.get("transcript_id") in selected_ids
+        ):
+            children.append(f)
+    # An unannotated parent relationship is ambiguous; do not merge by coordinate overlap.
+    return children
 
 
 def feature_intervals(
@@ -144,13 +188,7 @@ def feature_intervals(
             f"No gene/transcript annotation overlaps {region.vcf_label}; cannot apply --gene-feature {requested}"
         )
 
-    # Restrict child features to the selected gene span. This is intentionally permissive
-    # across GFF3/GTF attribute conventions while remaining consistent with the plotted gene model.
-    children = [
-        f for f in features
-        if f.start <= gene.end and f.end >= gene.start
-        and f.ftype in {"exon", "CDS", "UTR", "five_prime_UTR", "three_prime_UTR"}
-    ]
+    children = gene_children(features, gene)
     exons = [(f.start, f.end) for f in children if f.ftype == "exon"]
     cds = [(f.start, f.end) for f in children if f.ftype == "CDS"]
     utrs = [
@@ -172,7 +210,26 @@ def feature_intervals(
                 f"No exon/CDS/UTR records are available for the primary gene in {region.vcf_label}; "
                 "cannot infer introns"
             )
-        intervals = _subtract_intervals((gene.start, gene.end), exon_like)
+        by_transcript = {}
+        source = [f for f in children if f.ftype == "exon"] or [
+            f
+            for f in children
+            if f.ftype in {"CDS", "UTR", "five_prime_UTR", "three_prime_UTR"}
+        ]
+        for f in source:
+            parents = f.attrs.get(
+                "Parent", f.attrs.get("transcript_id", f.attrs.get("gene_id", ""))
+            ).split(",")
+            for parent in parents:
+                by_transcript.setdefault(parent, []).append((f.start, f.end))
+        intervals = []
+        for exon_intervals in by_transcript.values():
+            ordered = _merge_intervals(exon_intervals)
+            intervals.extend(
+                (left[1] + 1, right[0] - 1)
+                for left, right in zip(ordered, ordered[1:])
+                if right[0] > left[1] + 1
+            )
 
     intervals = _merge_intervals(
         (max(s, region.start), min(e, region.end))
@@ -195,10 +252,11 @@ def filter_calls_by_gene_feature(
     requested = str(feature).strip().lower()
     if requested == "all":
         return list(calls), [(region.start, region.end)], None
-    features = read_annotation_features(gff_file, region.chrom, region.start, region.end)
+    features = read_annotation_features(
+        gff_file, region.chrom, region.start, region.end
+    )
     intervals, gene = feature_intervals(features, region, requested)
     kept = [
-        call for call in calls
-        if any(s <= int(call.pos) <= e for s, e in intervals)
+        call for call in calls if any(s <= int(call.pos) <= e for s, e in intervals)
     ]
     return kept, intervals, gene

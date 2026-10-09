@@ -5,3 +5,4 @@ scipy>=1.10
 networkx>=3.1
 pysam>=0.21
 cyvcf2>=0.30
+pgenlib>=0.95.1

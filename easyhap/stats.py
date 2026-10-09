@@ -4,67 +4,61 @@ from math import comb
 from typing import Iterable, List, Sequence, Tuple
 
 
-def fisher_exact_2x2(a: int, b: int, c: int, d: int) -> float:
-    """Two-sided Fisher exact test for [[a,b],[c,d]].
+def fisher_exact_2x2(a, b, c, d):
+    """Stable two-sided exact test, including extremely small tail probabilities."""
+    from scipy.stats import fisher_exact
 
-    Uses the conventional probability-summing definition. This avoids requiring
-    SciPy for the filtering step.
-    """
-    n = a + b + c + d
-    row1 = a + b
-    row2 = c + d
-    col1 = a + c
-
-    def prob(x: int) -> float:
-        return (comb(row1, x) * comb(row2, col1 - x)) / comb(n, col1)
-
-    lo = max(0, col1 - row2)
-    hi = min(row1, col1)
-    p_obs = prob(a)
-    p = 0.0
-    eps = 1e-12
-    for x in range(lo, hi + 1):
-        px = prob(x)
-        if px <= p_obs + eps:
-            p += px
-    return min(1.0, p)
+    return float(fisher_exact([[a, b], [c, d]], alternative="two-sided").pvalue)
 
 
 def bh_adjust(p_values: Sequence[float]) -> List[float]:
-    """Benjamini-Hochberg adjusted p values."""
+    """Benjamini-Hochberg adjusted p values, robust to NaN and extreme values."""
+    import math
+
     n = len(p_values)
-    order = sorted(range(n), key=lambda i: p_values[i])
-    adj = [1.0] * n
+    adj = [float("nan")] * n
+    valid_indices = [
+        i for i, p in enumerate(p_values) if p is not None and not math.isnan(float(p))
+    ]
+    if not valid_indices:
+        return adj
+
+    m = len(valid_indices)
+    sorted_indices = sorted(valid_indices, key=lambda i: float(p_values[i]))
+
     running = 1.0
-    for rank, idx in enumerate(reversed(order), 1):
-        # rank from largest to smallest; BH denominator is n-rank+1
-        denom_rank = n - rank + 1
-        val = p_values[idx] * n / max(denom_rank, 1)
+    for rank, idx in enumerate(reversed(sorted_indices), 1):
+        denom_rank = m - rank + 1
+        val = float(p_values[idx]) * m / max(denom_rank, 1)
         running = min(running, val)
-        adj[idx] = min(1.0, running)
+        adj[idx] = min(1.0, max(0.0, running))
+
     return adj
 
 
-def hamming_distance(a: Sequence[str], b: Sequence[str], missing: str = "N", absence: str = "ABS") -> float:
-    compared = 0
-    diff = 0
+def comparable_differences(a, b, missing="N", absence="ABS"):
+    if len(a) != len(b):
+        raise ValueError("State sequences must have equal lengths")
+    compared = diff = 0
     for x, y in zip(a, b):
-        # Missing GT and structural absence are non-comparable marker states.
-        # The causal deletion/PAV event itself remains in the sequence and is
-        # counted once, while downstream ABS markers are not repeatedly weighted.
-        x_parts = set(str(x).split("/"))
-        y_parts = set(str(y).split("/"))
-        if missing in x_parts or missing in y_parts or absence in x_parts or absence in y_parts:
+        parts = set(str(x).replace("|", "/").split("/")) | set(
+            str(y).replace("|", "/").split("/")
+        )
+        if missing in parts or absence in parts:
             continue
         compared += 1
-        if x != y:
-            diff += 1
-    if compared == 0:
-        return 1.0
-    return diff / compared
+        diff += x != y
+    return int(diff), compared
 
 
-def connected_component_clusters(seqs: Sequence[Sequence[str]], threshold: float = 0.15) -> List[str]:
+def hamming_distance(a, b, missing="N", absence="ABS"):
+    diff, compared = comparable_differences(a, b, missing, absence)
+    return diff / compared if compared else float("nan")
+
+
+def connected_component_clusters(
+    seqs: Sequence[Sequence[str]], threshold: float = 0.15
+) -> List[str]:
     """Cluster haplotypes by pairwise Hamming distance using connected components."""
     n = len(seqs)
     parent = list(range(n))

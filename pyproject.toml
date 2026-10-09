@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "EasyHap"
-version = "1.3.0"
+version = "1.4.0"
 description = "Ploidy-aware regional haplotype analysis, population statistics, trait association, LD analysis and visualization"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -17,7 +17,8 @@ dependencies = [
   "scipy>=1.10",
   "networkx>=3.1",
   "pysam>=0.21",
-  "cyvcf2>=0.30"
+  "cyvcf2>=0.30",
+  "pgenlib>=0.95.1"
 ]
 
 [project.urls]
@@ -28,6 +29,7 @@ Issues = "https://github.com/Guangqi-He/EasyHap/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+pgen = ["pgenlib>=0.95.1"]
 
 [project.scripts]
 easyhap = "easyhap.cli:main"

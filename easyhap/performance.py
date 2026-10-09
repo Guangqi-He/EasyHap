@@ -11,6 +11,7 @@ Linux a standard-library/native fallback is provided so a PyInstaller build does
 not silently report zero memory if psutil was omitted.  Windows native API calls
 have explicit ctypes signatures, which is important for 64-bit executables.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ import time
 from typing import Optional
 
 
-_GIB = 1024.0 ** 3
+_GIB = 1024.0**3
 
 try:  # Preferred cross-platform process-tree implementation.
     import psutil as _psutil  # type: ignore
@@ -32,6 +33,7 @@ except Exception:  # pragma: no cover - exercised on minimal installations.
 # ---------------------------------------------------------------------------
 # Windows native memory helpers
 # ---------------------------------------------------------------------------
+
 
 def _windows_memory_info(pid: Optional[int] = None) -> tuple[int, int]:
     """Return (current_working_set, lifetime_peak_working_set) for *pid*.
@@ -163,9 +165,15 @@ def _windows_descendant_pids(root_pid: int) -> list[int]:
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
         kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
-        kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        kernel32.Process32FirstW.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(PROCESSENTRY32W),
+        ]
         kernel32.Process32FirstW.restype = wintypes.BOOL
-        kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        kernel32.Process32NextW.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(PROCESSENTRY32W),
+        ]
         kernel32.Process32NextW.restype = wintypes.BOOL
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         kernel32.CloseHandle.restype = wintypes.BOOL
@@ -208,6 +216,7 @@ def _windows_descendant_pids(root_pid: int) -> list[int]:
 # Linux native process-tree fallback
 # ---------------------------------------------------------------------------
 
+
 def _linux_descendant_pids(root_pid: int) -> list[int]:
     if not (os.name == "posix" and os.path.isdir("/proc")):
         return [root_pid]
@@ -223,12 +232,20 @@ def _linux_descendant_pids(root_pid: int) -> list[int]:
         if not os.path.exists(f"/proc/{pid}"):
             continue
         found.append(pid)
-        children_file = f"/proc/{pid}/task/{pid}/children"
+        # GUI/process-pool workers may be launched by a non-main thread.
+        # Linux assigns children to that thread's task directory.
         try:
-            with open(children_file, "r", encoding="ascii") as fh:
-                stack.extend(int(x) for x in fh.read().split())
-        except (OSError, ValueError):
-            pass
+            thread_ids = os.listdir(f"/proc/{pid}/task")
+        except OSError:
+            thread_ids = [str(pid)]
+        for tid in thread_ids:
+            try:
+                with open(
+                    f"/proc/{pid}/task/{tid}/children", "r", encoding="ascii"
+                ) as fh:
+                    stack.extend(int(x) for x in fh.read().split())
+            except (OSError, ValueError):
+                pass
     return found
 
 
@@ -247,6 +264,7 @@ def _linux_rss_for_pid(pid: int) -> int:
 # Cross-platform process-tree RSS
 # ---------------------------------------------------------------------------
 
+
 def _process_tree_rss_bytes() -> int:
     """Return simultaneous RSS/working-set bytes for EasyHap + descendants."""
     root_pid = os.getpid()
@@ -260,7 +278,11 @@ def _process_tree_rss_bytes() -> int:
             for proc in processes:
                 try:
                     total += int(proc.memory_info().rss)
-                except (_psutil.NoSuchProcess, _psutil.AccessDenied, _psutil.ZombieProcess):
+                except (
+                    _psutil.NoSuchProcess,
+                    _psutil.AccessDenied,
+                    _psutil.ZombieProcess,
+                ):
                     continue
             if total > 0:
                 return total

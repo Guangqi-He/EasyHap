@@ -1,10 +1,6 @@
 <p align="center"><img src="images/EasyHap_logo.png" width="120" alt="EasyHap logo"></p>
 
-# EasyHap
-
-**Regional haplotype/genotype analysis, multi-region trait exploration and visualization.**
-
-EasyHap reads regional genotypes, constructs phase-independent genotype categories or known-phase chromosome-copy haplotypes, and produces descriptive statistics and figures. `aggregate` compares combinations of categories from multiple regions with numeric phenotypes. These comparisons are exploratory and do not adjust for population structure, kinship, or environmental covariates.
+EasyHap reads regional genotypes, constructs phase-independent genotype categories or known-phase chromosome-copy haplotypes, and produces descriptive statistics and figures. `aggregate` compares combinations of categories from multiple regions with numeric phenotypes.
 
 ## Citation
 
@@ -206,17 +202,6 @@ easyhap aggregate --indir copy_results --regions 'Chr1:1-150,Chr1:151-300' \
 `--interaction` fits a continuous-phenotype categorical OLS model for exactly two regions, comparing `y ~ A + B` to `y ~ A + B + A:B` with a nested-model F test. `A` and `B` are regional genotype/diplotype categories, not measured gene expression. It requires two levels per factor, all factorial cells, the chosen minimum replication per cell, and positive residual degrees of freedom/variance. Missing cells or inadequate support produce `NOT_ESTIMABLE`, with a reason.
 
 Outputs contain F, degrees of freedom, p/BH-adjusted p, additive/full R², ΔR², partial η², and treatment-coded interaction contrasts with SE and 95% CI. Contrasts are differences of differences relative to the stated reference levels. This model assumes independent observations and suitable continuous residuals; logistic/count models and covariate adjustment are not implemented. Statistical nonadditivity is an exploratory signal, not proof of biological epistasis.
-
-## Reproducible example and tests
-
-`examples/aggregate_demo/` contains 72 synthetic samples, nine replicated two-region categories, phased variants, traits, groups, annotation, and region files. See its [README](examples/aggregate_demo/README.md) for commands. The original reviewer examples are preserved in `examples/reviewer_validation.zip`.
-
-```bash
-python -m pip install -e '.[dev]'
-python -m pytest -q tests
-```
-
-Project links: [repository](https://github.com/Guangqi-He/EasyHap), [wiki](https://github.com/Guangqi-He/EasyHap/wiki). Original GPL-3.0-or-later licensing is retained.
 
 ## Documentation and scope
 

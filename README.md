@@ -35,8 +35,8 @@ He Guangqi and Shou Huixia. 2026. “EasyHap: A Ploidy-Aware Toolkit for Haploty
 Python 3.9+ is required. Linux source installation:
 
 ```bash
-unzip EasyHap_v1.4.0_Linux.zip
-cd EasyHap_v1.4.0_Linux
+unzip -d EasyHap EasyHap_v1.4.0_Linux.zip
+cd EasyHap
 python -m pip install -e .
 easyhap --version
 easyhap analyze --help
